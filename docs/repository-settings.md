@@ -2,6 +2,8 @@
 
 **Статус на 27 ноября 2026:** защита `main` ещё не включена. Ниже — целевые настройки; наличие этого файла и CI в PR само по себе их не включает. Применение требует доступа владельца к настройкам GitHub.
 
+В [PR #22](https://github.com/incRED1bl/Deep-Hedging-and-Market-Stability-Neural-vs.-Classical-Option-Hedging-in-an-Agent-Based-Market/pull/22) проверки `lint` и `test` прошли. В фактических check runs проверен источник: `github-actions`, `app.id = 15368`. Подготовленный [main-ruleset.json](main-ruleset.json) использует этот ID и не имеет bypass-исключений. Файл ещё не применён.
+
 ## Защита `main`
 
 Settings → Rules → Rulesets: создать активный branch ruleset для `refs/heads/main`.
@@ -14,10 +16,19 @@ Settings → Rules → Rulesets: создать активный branch ruleset 
 - [ ] Требовать разрешения всех обсуждений.
 - [ ] Требовать успешные проверки **`lint`** и **`test`**.
 - [ ] Требовать актуальность ветки относительно `main` перед слиянием — strict status checks.
-- [ ] Для обеих проверок выбрать источник **GitHub Actions**, а не Any source. Числовой `integration_id` для API взять из `app.id` реального check run; заранее его не подставлять.
+- [ ] Для обеих проверок выбрать источник **GitHub Actions**, а не Any source. Проверенный `integration_id` для этого репозитория — `15368`.
 - [ ] Запретить force push и удаление `main`.
 
 Если применяется классическая branch protection вместо ruleset: включить **Do not allow bypassing the above settings** (`enforce_admins: true`). Дублировать две схемы защиты не требуется.
+
+Владелец может применить готовый JSON через GitHub CLI после своей обычной авторизации. Перед созданием проверить существующие rulesets, чтобы не добавлять дубликат:
+
+```bash
+gh api repos/incRED1bl/Deep-Hedging-and-Market-Stability-Neural-vs.-Classical-Option-Hedging-in-an-Agent-Based-Market/rulesets
+gh api --method POST repos/incRED1bl/Deep-Hedging-and-Market-Stability-Neural-vs.-Classical-Option-Hedging-in-an-Agent-Based-Market/rulesets --input docs/main-ruleset.json
+```
+
+Этот payload включает только защиту ветки; настройки слияния и Actions ниже применяются отдельно. После применения сверить сохранённый ruleset и требования на открытом PR.
 
 ## Слияние и Actions
 
