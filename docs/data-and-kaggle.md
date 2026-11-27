@@ -38,7 +38,7 @@ private-статус не скрывает данные от владельца 
 | `manifest.json` | Версия схемы, release ID, commit генератора, hash `uv.lock`, режим генерации, список файлов с SHA256 и размерами |
 | `calibration.json` | Инструмент, источник, период, параметры и их единицы; для каждого параметра — оценён/из литературы/допущение |
 | `simulation-config.json` | Параметры генератора, шаг времени, burn-in, число агентов, схема исполнения и контракты опционов |
-| `train-seeds.json` | JSON-массив уникальных целых seeds обучающих эпизодов |
+| `train-seeds.json` | JSON-массив уникальных десятичных строк с seeds обучающих эпизодов |
 | `validation-seeds.json` | Другой JSON-массив seeds; пересечение с train пустое |
 | `DATA_CARD.md` | Происхождение, очистка, хронологический split, ограничения и разрешённое использование |
 | `train-paths.npz`, `validation-paths.npz` | Только если выбрано предварительное обучение на фиксированных синтетических траекториях |
@@ -49,7 +49,7 @@ metadata туда не входят. Hash manifest фиксируется сна
 placeholders недопустимы в готовом релизе.
 
 Для `.npz` контракт — `spot: float64[N, H+1]`,
-`vol_observed: float64[N, H+1]`, `episode_seed: int64[N]`,
+`vol_observed: float64[N, H+1]`, `episode_seed: uint64[N]`,
 `strike: float64[N]`; `H`, `dt_years`, ставка, дивидендная конвенция,
 notional и комиссия задаются в config. Все цены и страйки положительны;
 массивы конечны, порядок эпизодов согласован с seeds. Загрузка —
@@ -57,6 +57,25 @@ notional и комиссия задаются в config. Все цены и ст
 доступной агенту истории; будущие значения и скрытая истинная волатильность
 не становятся признаками. Текущая позиция зависит от действий политики и
 вычисляется во время обучения, а не подставляется из чужой стратегии.
+
+Seed эпизода находится в диапазоне Rust `u64` от `0` до
+`18446744073709551615` включительно. В обоих JSON-списках он записывается
+строкой из цифр без знака и ведущих нулей, например `"9223372036854775808"`
+для `2**63`. В Python декодируем строки в точный `int` функцией
+`finmath.data_release.read_seeds`, затем строим `np.array(seeds, dtype=np.uint64)`.
+Порядок `episode_seed` в NPZ должен совпадать с соответствующим JSON-списком.
+При чтении NPZ возвращаем семя в Python через `int(seed)`. Все шаги проходят
+без `float`. При передаче конкретного seed в `simulation-config.json` Rust
+декодирует целочисленное поле `seed` типом `u64`. Записываем его из точного
+целого и избегаем JSON-инструментов, переводящих числа в `float`.
+
+`spot` и `strike` в NPZ измеряются в валюте котировки за одну акцию. Rust
+хранит цены в целых тиках. В `simulation-config.json` размер тика в этих
+единицах равен `tick_size = instrument.tick_value_per_share * 10**(-instrument.cash_decimal_places)`.
+Экспортёр вычисляет `spot = spot_ticks * tick_size` и
+`strike = strike_ticks * tick_size`, затем записывает результаты в `float64`.
+При `tick_value_per_share=1` и `cash_decimal_places=2` размер тика
+равен `0.01`, поэтому `10_000` тиков дают цену `100.00` за акцию.
 
 Фиксированные price paths подходят для предварительного deep hedging.
 **Они не заменяют финальный интерактивный рынок:** для market-stability
@@ -93,7 +112,8 @@ uv run --group kaggle kaggle --version
 uv run --group kaggle kaggle auth login
 ```
 
-Лев и Тим авторизуются **каждый в своём аккаунте**. CLI поддерживает OAuth и
+Лев и Тим авторизуются **каждый в своём аккаунте** и берут usernames из
+профилей Kaggle. CLI поддерживает OAuth и
 `KAGGLE_API_TOKEN`; credentials не передаются друг другу и не записываются в
 Git, metadata, notebook или логи. В обычном CI Kaggle auth и upload не нужны.
 [Официальная авторизация](https://github.com/Kaggle/kaggle-cli/blob/main/docs/README.md#authentication).
@@ -136,20 +156,30 @@ private; доступ к kernel настраивается отдельно. Э�
 После успешной загрузки заполнить `artifact-pin.json` по шаблону: реальный
 `owner/slug`, **номер версии, возвращённый Kaggle**, SHA256 manifest, commit
 генератора и локальный путь. Лев передаёт Тиму ссылку и этот pin.
-**Тим под своей авторизацией** проверяет доступ и скачивание:
+**Тим под своей авторизацией** проверяет доступ и скачивает релиз. Замените
+путь `pin` на путь к полученному `artifact-pin.json` вне папки скачивания.
 
 ```bash
-FINMATH_DATASET="REPLACE_WITH_DATASET_OWNER/REPLACE_WITH_DATASET_SLUG"
-FINMATH_DATASET_VERSION="REPLACE_WITH_ACTUAL_VERSION_NUMBER"
-uv run --group kaggle kaggle datasets files "$FINMATH_DATASET/$FINMATH_DATASET_VERSION"
-uv run --group kaggle kaggle datasets download "$FINMATH_DATASET/$FINMATH_DATASET_VERSION" -p data/kaggle-download --unzip
+(
+  set -e
+  pin="REPLACE_WITH_PATH_TO_ARTIFACT_PIN_JSON"
+  dataset=$(jq -er '.dataset | select(test("^[A-Za-z0-9_-]+/[a-z0-9-]+$"))' "$pin")
+  version=$(jq -er '.dataset_version | select(type == "number" and . > 0 and floor == .)' "$pin")
+  release=$(jq -er '.release_id | select(test("^[A-Za-z0-9][A-Za-z0-9._-]*$"))' "$pin")
+  directory="data/kaggle-download/$release/v$version"
+  mkdir -p "$(dirname "$directory")"
+  mkdir "$directory"
+  uv run --locked --group kaggle kaggle datasets download "$dataset/$version" -p "$directory" --unzip
+  uv run --no-sync python -m finmath.data_release "$directory" "$pin"
+)
 ```
 
-Скачивание выполняется в новую пустую папку. Перед использованием проверяем
-SHA256 manifest против внешнего pin, затем hash, размер и состав файлов
-против manifest; проверяем отсутствие final-test и пересечений seeds.
-Несовпадение останавливает запуск. Номер версии без проверки содержимого и
-hash без внешней фиксации не считаем достаточными.
+`mkdir` останавливает повторное скачивание в уже существующую папку этой
+версии. Если скачивание прервалось, отложите незавершённую папку перед
+повтором. Используем релиз после успешной проверки SHA256 manifest по внешнему
+pin, точного состава каталога, размеров, хешей и непересекающихся seeds.
+Скачанный пакет содержит `manifest.json` и файлы из `manifest.files`.
+`dataset-metadata.json` используется CLI при загрузке и в пакет не попадает.
 
 ## Тим: private training kernel
 

@@ -1,69 +1,108 @@
 # Настройки репозитория
 
-**Статус на 27 ноября 2026:** защита `main` ещё не включена. Ниже — целевые настройки; наличие этого файла и CI в PR само по себе их не включает. Применение требует доступа владельца к настройкам GitHub.
+27 ноября 2026 GitHub API подтвердил, что для `refs/heads/main` действует
+[ruleset Protect main](https://github.com/incRED1bl/Deep-Hedging-and-Market-Stability-Neural-vs.-Classical-Option-Hedging-in-an-Agent-Based-Market/rules/28249578).
+[main-ruleset.json](main-ruleset.json) описывает первый этап защиты.
 
-В [PR #22](https://github.com/incRED1bl/Deep-Hedging-and-Market-Stability-Neural-vs.-Classical-Option-Hedging-in-an-Agent-Based-Market/pull/22) проверки `lint` и `test` прошли. В фактических check runs проверен источник: `github-actions`, `app.id = 15368`. Подготовленный [main-ruleset.json](main-ruleset.json) использует этот ID и не имеет bypass-исключений. Файл ещё не применён.
+## Применено
 
-## Защита `main`
+- Enforcement `active`. Список bypass пуст, включая владельца и приложения.
+- Изменения через PR. Нужно минимум одно независимое одобрение, review от
+  CODEOWNERS, одобрение последнего reviewable push другим участником и
+  разрешение всех обсуждений. Новый push сбрасывает прежние approvals.
+- Обязательны `lint` и `test` от GitHub Actions (`integration_id: 15368`).
+  Ветка PR должна быть актуальной относительно `main`.
+- Запрещены force push и удаление `main`. Требуется линейная история.
+- Разрешён только squash merge. GitHub автоматически удаляет head-ветку после
+  слияния, если её можно удалить.
+- Actions по умолчанию получают read-only права. Создание и одобрение PR через
+  `GITHUB_TOKEN` отключены. Python CI использует `contents: read`, actions по
+  commit SHA, `persist-credentials: false` и таймауты. Секреты ему не нужны.
 
-Settings → Rules → Rulesets: создать активный branch ruleset для `refs/heads/main`.
+Тим (@incRED1bl) — владелец с `admin`. Даня (@bani2016up), Федя
+(@Perf0rator4) и Лев (@Levonidor) — collaborators с `write`. Управление
+доступом и правилами остаётся у владельца. В личном репозитории collaborators
+могут управлять repository Actions secrets и variables. Environment secrets
+управляет владелец. Владелец также может редактировать сам ruleset.
 
-- [ ] Enforcement: **Active**; список bypass пуст, включая владельца и приложения.
-- [ ] Требовать PR и **1 approving review**.
-- [ ] Включить **Dismiss stale pull request approvals when new commits are pushed**.
-- [ ] Включить **Require approval of the most recent reviewable push**.
-- [ ] Включить **Require review from Code Owners**.
-- [ ] Требовать разрешения всех обсуждений.
-- [ ] Требовать успешные проверки **`lint`** и **`test`**.
-- [ ] Требовать актуальность ветки относительно `main` перед слиянием — strict status checks.
-- [ ] Для обеих проверок выбрать источник **GitHub Actions**, а не Any source. Проверенный `integration_id` для этого репозитория — `15368`.
-- [ ] Запретить force push и удаление `main`.
+## PR #22 и CODEOWNERS
 
-Если применяется классическая branch protection вместо ruleset: включить **Do not allow bypassing the above settings** (`enforce_admins: true`). Дублировать две схемы защиты не требуется.
+[PR #22](https://github.com/incRED1bl/Deep-Hedging-and-Market-Stability-Neural-vs.-Classical-Option-Hedging-in-an-Agent-Based-Market/pull/22)
+можно слить после независимого approval на актуальной версии, зелёных
+`lint` и `test`, актуальной базы и разрешения обсуждений. GitHub берёт
+CODEOWNERS из целевой ветки. В первом PR файл только добавляется, поэтому
+review запрашивается вручную. Далее один из владельцев каждой затронутой
+группы путей должен одобрить изменения. См. [CONTRIBUTING.md](../CONTRIBUTING.md#ответственные-и-review).
 
-Владелец может применить готовый JSON через GitHub CLI после своей обычной авторизации. Перед созданием проверить существующие rulesets, чтобы не добавлять дубликат:
+## После подключения Rust CI
+
+[Rust workflow в PR #25](https://github.com/incRED1bl/Deep-Hedging-and-Market-Stability-Neural-vs.-Classical-Option-Hedging-in-an-Agent-Based-Market/pull/25)
+уже дал успешный `rust-checks` от GitHub Actions. Обязательная проверка
+ожидает интеграции workflow в `main`.
+
+1. После слияния #22 обновить #25 от `main`. На актуальном head должны пройти
+   `lint`, `test` и `rust-checks`. Сохранить в Rust workflow запуск на каждом
+   PR без фильтра по путям и веткам, добавить разумный таймаут job.
+2. После review и разрешённого squash merge #25 дождаться успешного запуска
+   Rust workflow на `main`. Проверить запуск на всех открытых PR. При
+   необходимости обновить их ветки и дождаться появления check run.
+3. Добавить `rust-checks` к действующему ruleset командой ниже. Cargo fmt,
+   Clippy, тесты и пороги 100% по строкам и функциям уже входят в этот job.
+   Его неуспешный результат после включения будет блокировать merge в `main`.
+
+Команда для владельца проверяет наличие workflow в `main`, источник
+`rust-checks` и появление проверки на текущих head открытых PR. Она сохраняет
+остальные правила и при повторном запуске не добавляет дубликат.
 
 ```bash
-gh api repos/incRED1bl/Deep-Hedging-and-Market-Stability-Neural-vs.-Classical-Option-Hedging-in-an-Agent-Based-Market/rulesets
-gh api --method POST repos/incRED1bl/Deep-Hedging-and-Market-Stability-Neural-vs.-Classical-Option-Hedging-in-an-Agent-Based-Market/rulesets --input docs/main-ruleset.json
+bash -euo pipefail <<'BASH'
+repo='repos/incRED1bl/Deep-Hedging-and-Market-Stability-Neural-vs.-Classical-Option-Hedging-in-an-Agent-Based-Market'
+ruleset="$repo/rulesets/28249578"
+workflow="$repo/actions/workflows/rust-checks.yml"
+
+gh api "$repo/contents/.github/workflows/rust-checks.yml?ref=main" --silent
+gh api "$workflow" | jq -e '.state == "active"' >/dev/null
+run=$(gh api "$workflow/runs?event=push&branch=main&status=success&per_page=1" \
+  | jq -er '.workflow_runs[0].id')
+check=$(gh api "$repo/actions/runs/$run/jobs" \
+  | jq -er '.jobs[] | select(.name == "rust-checks" and .conclusion == "success") | .check_run_url')
+gh api "$check" | jq -e '.app.slug == "github-actions" and .app.id == 15368' >/dev/null
+
+pulls=$(gh api --paginate --slurp "$repo/pulls?state=open&per_page=100" \
+  | jq -r '.[][] | [.number, .head.sha] | @tsv')
+while IFS=$'\t' read -r number sha; do
+  [[ -z "$number" ]] && continue
+  gh api "$repo/commits/$sha/check-runs?check_name=rust-checks" \
+    | jq -e 'any(.check_runs[]; .app.id == 15368)' >/dev/null \
+    || { echo "PR #$number: rust-checks от GitHub Actions пока отсутствует" >&2; exit 1; }
+done <<< "$pulls"
+
+current=$(gh api "$ruleset")
+gate='{"context":"rust-checks","integration_id":15368}'
+payload=$(jq -ec --argjson gate "$gate" '
+  select(.target == "branch" and .enforcement == "active" and .bypass_actors == []
+    and .conditions.ref_name == {"include":["refs/heads/main"],"exclude":[]})
+  | {name,target,enforcement,bypass_actors,conditions,rules}
+  | (.rules[] | select(.type == "required_status_checks"
+      and .parameters.strict_required_status_checks_policy)
+    | .parameters.required_status_checks) |= (
+      if any(.[]; .context == $gate.context and .integration_id != $gate.integration_id)
+      then error("rust-checks has a different source")
+      elif index($gate) then . else . + [$gate] end
+    )
+  | select(any(.rules[]; .type == "required_status_checks"
+      and .parameters.strict_required_status_checks_policy
+      and (.parameters.required_status_checks | index($gate)) != null))
+' <<< "$current")
+if ! jq -e --argjson gate "$gate" 'any(.rules[]; .type == "required_status_checks"
+  and (.parameters.required_status_checks | index($gate)) != null)' <<< "$current" >/dev/null; then
+  gh api --method PUT "$ruleset" --input - --silent <<< "$payload"
+fi
+gh api "$repo/rules/branches/main" --jq '.[] | select(.type == "required_status_checks").parameters'
+BASH
 ```
 
-Этот payload включает только защиту ветки; настройки слияния и Actions ниже применяются отдельно. После применения сверить сохранённый ruleset и требования на открытом PR.
-
-## Слияние и Actions
-
-- [ ] Settings → General → Pull Requests: оставить только **Squash merging**; отключить merge commits и rebase merging.
-- [ ] Включить **Automatically delete head branches**.
-- [ ] Settings → Actions → General → Workflow permissions: **Read repository contents and packages permissions**.
-- [ ] Отключить **Allow GitHub Actions to create and approve pull requests**.
-- [ ] В workflow сохранить `permissions: contents: read`, установку через `uv sync --locked` и отдельные jobs `lint` / `test`.
-- [ ] Не добавлять секреты проекта для обычного CI: линтеру и CPU-тестам они не нужны.
-
-## CODEOWNERS и первый PR
-
-Права всех участников проверены: Тим `@incRED1bl` — владелец с `admin`; Даня `@bani2016up`, Федя `@Perf0rator4` и Лев `@Levonidor` — collaborators с `write`.
-
-CODEOWNERS назначает ревьюеров по модулю и соответствующим тестам; таблица находится в [CONTRIBUTING.md](../CONTRIBUTING.md#ответственные-и-review). Для остальных путей действует fallback на Тима и Федю. Инфраструктуру (`.github/`, включая CODEOWNERS, зависимости, правила разработки и `docs/main-ruleset.json`) проверяет Тим или Даня. Kaggle и контракт передачи данных проверяют Тим или Лев.
-
-Оба владельца пути записываются **на одной строке**. Достаточно одобрения **любого одного** из них: это не требование двух одобрений и не гарантия обязательного одобрения Тимом. Резервный ревьюер нужен в том числе для PR самого Тима: автор не может одобрить собственный PR. Сам файл `.github/CODEOWNERS` также должен иметь владельцев.
-
-Порядок для первого инфраструктурного PR:
-
-1. Дождаться запуска `lint` и `test`; проверить их фактические имена и приложение-источник.
-2. Проверить точные логины, принятие приглашений и `write`-доступ ревьюеров.
-3. Включить правила защиты с проверенными именами checks и источником.
-4. Вручную запросить review у участника, который не является автором и не сделал последний push.
-5. Слить через squash только после review и успешных checks.
-
-GitHub берёт CODEOWNERS из **целевой ветки PR**. Поэтому файл, впервые добавляемый в PR, ещё не назначит ревьюеров этому PR автоматически. Автоматические запросы также не отправляются для draft PR.
-
-## Границы прав
-
-У личного репозитория есть владелец и collaborators. Управление доступом и защитой репозитория остаётся у владельца; collaborators работают с кодом и PR. При этом collaborators могут создавать repository Actions secrets и variables. Поэтому нельзя обещать, что им недоступен вообще весь раздел Settings. Управлять environment secrets личного репозитория может владелец.
-
-Пустой bypass запрещает обход требований при слиянии, но не лишает владельца возможности изменить сами правила.
-
-## Документация
+## Документация GitHub
 
 - [Rulesets и параметры API](https://docs.github.com/en/rest/repos/rules)
 - [CODEOWNERS](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners)

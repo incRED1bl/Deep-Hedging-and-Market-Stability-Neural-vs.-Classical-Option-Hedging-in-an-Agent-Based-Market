@@ -4,5 +4,5 @@
   "release_id": "REPLACE_WITH_RELEASE_ID",
   "manifest_sha256": "REPLACE_WITH_SHA256_OF_MANIFEST_JSON",
   "generator_commit": "REPLACE_WITH_FULL_GIT_COMMIT",
-  "local_path": "data/kaggle-download"
+  "local_path": "data/kaggle-download/REPLACE_WITH_RELEASE_ID/vREPLACE_WITH_VERSION"
 }

@@ -10,6 +10,8 @@
 /tests/market/ @Perf0rator4 @incRED1bl
 /tests/agents/ @Perf0rator4 @incRED1bl
 /tests/accounting/ @Perf0rator4 @incRED1bl
+/crates/market-sim/ @Perf0rator4 @incRED1bl
+/docs/architecture/ @Perf0rator4 @incRED1bl
 
 # Fedya: classical strategies; reviewed by Tim or Dania.
 /src/finmath/strategies/classical/ @incRED1bl @bani2016up
@@ -40,9 +42,14 @@
 # Shared Kaggle workflow and data handoff contract.
 /kaggle/ @incRED1bl @Levonidor
 /docs/data-and-kaggle.md @incRED1bl @Levonidor
+/src/finmath/data_release.py @incRED1bl @Levonidor
+/tests/test_data_release.py @incRED1bl @Levonidor
 
 # Infrastructure and CODEOWNERS: Tim or Dania, without self-review.
 /.github/ @incRED1bl @bani2016up
+/Cargo.toml @incRED1bl @bani2016up
+/Cargo.lock @incRED1bl @bani2016up
+/.gitignore @incRED1bl @bani2016up
 /pyproject.toml @incRED1bl @bani2016up
 /uv.lock @incRED1bl @bani2016up
 /.python-version @incRED1bl @bani2016up

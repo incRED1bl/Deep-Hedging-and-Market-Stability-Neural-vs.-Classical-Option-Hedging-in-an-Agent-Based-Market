@@ -11,6 +11,9 @@ dist/
 .coverage
 htmlcov/
 
+# Rust / Cargo
+/target/
+
 # Local credentials and configuration
 .env
 .env.*
