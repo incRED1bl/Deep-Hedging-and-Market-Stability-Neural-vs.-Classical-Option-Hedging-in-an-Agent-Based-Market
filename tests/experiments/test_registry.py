@@ -85,3 +85,39 @@ def test_concurrent_resumes_do_not_repeat_successes(tmp_path: Path) -> None:
     assert len(seen) == 1000
     with closing(sqlite3.connect(db)) as connection:
         assert connection.execute("SELECT SUM(attempts) FROM runs").fetchone() == (1000,)
+
+
+def test_initialize_rejects_float_seeds_before_creating_db(tmp_path: Path) -> None:
+    db = tmp_path / "invalid.sqlite"
+    with pytest.raises(ValueError, match="fixture range"):
+        initialize(
+            db,
+            seeds=[1000.0, *SEEDS[1:]],
+            commit="a" * 40,
+            config=CONFIG,
+            data_hash="b" * 64,
+            model_hash="c" * 64,
+        )
+    assert not db.exists()
+
+
+def test_limit_resumes_with_all_policies_and_costs_of_a_seed(tmp_path: Path) -> None:
+    db = tmp_path / "limited.sqlite"
+    init(db)
+    assert run_pending(db, success, limit=3) == {"done": 3, "pending": 997}
+    assert run_pending(db, success, limit=17) == {"done": 20, "pending": 980}
+    with closing(sqlite3.connect(db)) as connection:
+        assert connection.execute(
+            "SELECT DISTINCT seed, attempts FROM runs WHERE status='done'"
+        ).fetchall() == [("1000", 1)]
+
+    with pytest.raises(ValueError, match="provenance differs"):
+        initialize(
+            db,
+            seeds=SEEDS,
+            commit="a" * 40,
+            config=CONFIG,
+            data_hash="b" * 64,
+            model_hash="c" * 64,
+            simulator={"commit": "d" * 40, "executable_sha256": "e" * 64},
+        )

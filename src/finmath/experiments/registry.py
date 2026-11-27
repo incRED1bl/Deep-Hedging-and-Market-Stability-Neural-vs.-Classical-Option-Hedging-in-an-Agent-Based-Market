@@ -2,6 +2,7 @@
 
 # AI assistance: OpenAI ChatGPT. Matrix and seed conventions: research protocol #1.
 import argparse
+import hashlib
 import json
 import math
 import re
@@ -67,7 +68,7 @@ def fixture_plan(seeds: list[int]) -> Iterator[Run]:
     if (
         len(seeds) != 50
         or len(set(seeds)) != 50
-        or any(seed not in FIXTURE_SEEDS for seed in seeds)
+        or any(type(seed) is not int or seed not in FIXTURE_SEEDS for seed in seeds)
     ):
         raise ValueError("expected 50 distinct seeds in the fixture range 1000–1999")
     for ordinal, (policy, cost_bps, seed) in enumerate(product(POLICIES, COST_BPS, seeds)):
@@ -82,6 +83,7 @@ def initialize(
     config: dict,
     data_hash: str,
     model_hash: str,
+    simulator: dict[str, str] | None = None,
 ) -> None:
     if re.fullmatch(r"[0-9a-f]{40}", commit) is None:
         raise ValueError("expected a full Git commit SHA")
@@ -90,6 +92,12 @@ def initialize(
     if not isinstance(config, dict):
         raise ValueError("expected a JSON object for the scenario config")
     rows = [(run.ordinal, run.policy, run.cost_bps, str(run.seed)) for run in fixture_plan(seeds)]
+    if simulator is not None and (
+        set(simulator) != {"commit", "executable_sha256"}
+        or re.fullmatch(r"[0-9a-f]{40}", simulator["commit"]) is None
+        or re.fullmatch(r"[0-9a-f]{64}", simulator["executable_sha256"]) is None
+    ):
+        raise ValueError("expected the market simulator commit and executable SHA256")
     manifest = _json(
         {
             "schema_version": 1,
@@ -99,6 +107,7 @@ def initialize(
             "data_hash": data_hash,
             "model_hash": model_hash,
             "seeds": [str(seed) for seed in seeds],
+            **({"simulator": simulator} if simulator is not None else {}),
         }
     )
     db.parent.mkdir(parents=True, exist_ok=True)
@@ -121,17 +130,26 @@ def initialize(
 
 
 def run_pending(
-    db: Path, execute: Callable[[Run], Outcome], *, retry_failed: bool = False
+    db: Path,
+    execute: Callable[[Run], Outcome],
+    *,
+    retry_failed: bool = False,
+    limit: int | None = None,
 ) -> dict[str, int]:
+    if limit is not None and limit < 1:
+        raise ValueError("run limit must be positive")
     # A writer lock spans one run, so overlapping invocations cannot execute the same cell.
     # A failed/aborted process releases the lock and leaves the cell retryable.
     with closing(sqlite3.connect(db.resolve().as_uri() + "?mode=rw", uri=True, timeout=30)) as conn:
         candidates = conn.execute(
             "SELECT ordinal FROM runs "
-            "WHERE status='pending' OR (? AND status='failed') ORDER BY ordinal",
+            "WHERE status='pending' OR (? AND status='failed') ORDER BY seed, cost_bps, policy",
             (retry_failed,),
         ).fetchall()
+        attempted = 0
         for (ordinal,) in candidates:
+            if attempted == limit:
+                break
             with conn:
                 conn.execute("BEGIN IMMEDIATE")
                 policy, cost_bps, seed, status = conn.execute(
@@ -139,6 +157,7 @@ def run_pending(
                 ).fetchone()
                 if status != "pending" and not (status == "failed" and retry_failed):
                     continue
+                attempted += 1
                 start = perf_counter()
                 try:
                     result = execute(Run(ordinal, policy, cost_bps, int(seed)))
@@ -189,21 +208,44 @@ def main() -> None:
     parser.add_argument("--model", type=Path, required=True, help="fixture model artifact")
     parser.add_argument("--commit", required=True)
     parser.add_argument("--retry-failed", action="store_true")
+    parser.add_argument("--market-executable", type=Path, help="built Rust run_scenario fixture")
+    parser.add_argument("--simulator-commit", help="Git commit used to build --market-executable")
+    parser.add_argument("--limit", type=int, help="maximum runs to attempt on this invocation")
     args = parser.parse_args()
+    if (args.market_executable is None) != (args.simulator_commit is None):
+        parser.error("--market-executable and --simulator-commit must be supplied together")
     try:
+        config = json.loads(args.config.read_text(encoding="utf-8"))
+        model = args.model.read_bytes()
+        execute = _fixture
+        simulator = None
+        if args.market_executable is not None:
+            from finmath.experiments.market_fixture import run_market_fixture
+
+            simulator = {
+                "commit": args.simulator_commit,
+                "executable_sha256": sha256_file(args.market_executable),
+            }
+
+            def execute(run: Run) -> Outcome:
+                return Outcome(*run_market_fixture(args.market_executable, model, config, run))
+
         initialize(
             args.database,
             seeds=read_seeds(args.seeds),
             commit=args.commit,
-            config=json.loads(args.config.read_text(encoding="utf-8")),
+            config=config,
             data_hash=sha256_file(args.data),
-            model_hash=sha256_file(args.model),
+            model_hash=hashlib.sha256(model).hexdigest(),
+            simulator=simulator,
         )
-        summary = run_pending(args.database, _fixture, retry_failed=args.retry_failed)
+        summary = run_pending(
+            args.database, execute, retry_failed=args.retry_failed, limit=args.limit
+        )
     except (OSError, ValueError, sqlite3.Error) as error:
         parser.exit(1, f"Experiment registry failed: {error}\n")
     print(_json(summary))
-    if summary != {"done": 1000}:
+    if summary.get("failed", 0) or (args.limit is None and summary != {"done": 1000}):
         parser.exit(1)
 
 
