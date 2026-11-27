@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "source": "Hand-calculated two-day partial-fill/expiry scenarios for issue #5. AI assistance: ChatGPT.",
+  "instrument": {
+    "cash_decimal_places": 2,
+    "tick_value_per_share": 1,
+    "lot_size_micros": 1000000
+  },
+  "pricing_cases": [
+    {
+      "name": "standard_call",
+      "spot": 100,
+      "strike": 100,
+      "years": 1,
+      "volatility": 0.2,
+      "rate": 0.05,
+      "price": 10.450583572185565,
+      "delta": 0.6368306511756191,
+      "gamma": 0.018762017345846895,
+      "vega": 37.52403469169379
+    },
+    {
+      "name": "expired_itm",
+      "spot": 110,
+      "strike": 100,
+      "years": 0,
+      "volatility": 0.2,
+      "rate": 0,
+      "price": 10,
+      "delta": 1,
+      "gamma": 0,
+      "vega": 0
+    }
+  ],
+  "accounting_cases": [
+    {
+      "name": "itm",
+      "opening_cash_units": 20000,
+      "opening_lots": 2,
+      "opening_price_ticks": 10000,
+      "call": {
+        "size_shares": 2,
+        "strike_ticks": 10000,
+        "premium_per_share_units": 250,
+        "issued_at": 0,
+        "expires_at": 2
+      },
+      "fills": [
+        {
+          "signed_lots": 1,
+          "price_ticks": 10000
+        }
+      ],
+      "commission": 0.001,
+      "annual_funding_rate": 0.252,
+      "close_ticks": 11000,
+      "expected_cash_units": 8522,
+      "expected_pnl_units": 1522,
+      "first_close_ticks": 10000
+    },
+    {
+      "name": "atm",
+      "opening_cash_units": 20000,
+      "opening_lots": 2,
+      "opening_price_ticks": 10000,
+      "call": {
+        "size_shares": 2,
+        "strike_ticks": 10000,
+        "premium_per_share_units": 250,
+        "issued_at": 0,
+        "expires_at": 2
+      },
+      "fills": [
+        {
+          "signed_lots": 1,
+          "price_ticks": 10000
+        }
+      ],
+      "commission": 0.001,
+      "annual_funding_rate": 0.252,
+      "close_ticks": 10000,
+      "expected_cash_units": 10522,
+      "expected_pnl_units": 522,
+      "first_close_ticks": 10000
+    },
+    {
+      "name": "otm",
+      "opening_cash_units": 20000,
+      "opening_lots": 2,
+      "opening_price_ticks": 10000,
+      "call": {
+        "size_shares": 2,
+        "strike_ticks": 10000,
+        "premium_per_share_units": 250,
+        "issued_at": 0,
+        "expires_at": 2
+      },
+      "fills": [
+        {
+          "signed_lots": 1,
+          "price_ticks": 10000
+        }
+      ],
+      "commission": 0.001,
+      "annual_funding_rate": 0.252,
+      "close_ticks": 9000,
+      "expected_cash_units": 10522,
+      "expected_pnl_units": -2478,
+      "first_close_ticks": 10000
+    }
+  ],
+  "rate_cases": [
+    {
+      "rate": 0.0005000005,
+      "notional_units": 1000000000,
+      "expected_units": 500000
+    },
+    {
+      "rate": -0.0005000005,
+      "notional_units": 1000000000,
+      "expected_units": -500000
+    },
+    {
+      "rate": 5e-10,
+      "notional_units": 1000000000,
+      "expected_units": 1
+    },
+    {
+      "rate": -5e-10,
+      "notional_units": 1000000000,
+      "expected_units": -1
+    }
+  ]
+}

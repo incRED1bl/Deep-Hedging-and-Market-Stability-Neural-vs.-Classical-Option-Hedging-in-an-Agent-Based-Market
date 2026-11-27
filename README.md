@@ -34,6 +34,7 @@ backlog. GPU и Kaggle не нужны для обычного CI.
 - [Задачи и DoD](https://github.com/incRED1bl/Deep-Hedging-and-Market-Stability-Neural-vs.-Classical-Option-Hedging-in-an-Agent-Based-Market/issues)
 - [Правила разработки и review](CONTRIBUTING.md)
 - [Данные и обучение на Kaggle](docs/data-and-kaggle.md)
+- [Финансовый эталон: Black–Scholes, греки и P&L](docs/finance-reference.md)
 - [Настройки защиты репозитория](docs/repository-settings.md)
 
 В `main` изменения попадают через PR после review и успешного CI. Датасеты,
