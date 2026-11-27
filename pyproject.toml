@@ -15,9 +15,12 @@ build-backend = "uv_build"
 [dependency-groups]
 # Installed by default for local development and the CPU-only CI checks.
 dev = [
+    { include-group = "release" },
     "pytest>=9.2.0",
     "ruff>=0.17.6",
 ]
+# NPZ replay validation for the packager and download verifier.
+release = ["numpy>=2.5.5"]
 # Opt in with `uv sync --group kaggle` or `uv run --group kaggle kaggle ...`.
 # The CLI is a submission/download tool; it is not part of the simulation runtime.
 kaggle = [

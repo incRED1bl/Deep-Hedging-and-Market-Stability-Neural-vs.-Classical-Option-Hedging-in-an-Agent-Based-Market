@@ -5,6 +5,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
+from zipfile import BadZipFile
 
 BASE_FILES = frozenset(
     {
@@ -69,7 +70,8 @@ def verify_release(directory: Path, pin_path: Path) -> None:
         if manifest[field] != pin[field]:
             raise ValueError(f"{field} differs from the external pin")
 
-    expected = PAYLOADS[manifest["generation_mode"]]
+    mode = manifest["generation_mode"]
+    expected = PAYLOADS[mode]
     listed = {entry["path"]: entry for entry in manifest["files"]}
     if listed.keys() != expected or len(listed) != len(manifest["files"]):
         raise ValueError("manifest files must match the generation mode without duplicates")
@@ -88,15 +90,60 @@ def verify_release(directory: Path, pin_path: Path) -> None:
         raise ValueError("manifest references must match the schema v1 file names and splits")
 
     seeds = {}
+    horizons = set()
     for name, split in manifest["splits"].items():
         filename = f"{name}-seeds.json"
         if split["seeds_file"] != filename:
             raise ValueError(f"{name}: expected seed file {filename}")
-        seeds[name] = set(read_seeds(entries[filename]))
-        if len(seeds[name]) != split["episode_count"]:
+        ordered_seeds = read_seeds(entries[filename])
+        seeds[name] = set(ordered_seeds)
+        if len(ordered_seeds) != split["episode_count"]:
             raise ValueError(f"{name}: seed count differs from the manifest")
+        if mode == "exogenous_pretrain":
+            horizons.add(_verify_replay_paths(entries[f"{name}-paths.npz"], ordered_seeds))
+    if len(horizons) > 1:
+        raise ValueError("train and validation episode horizons differ")
     if seeds["train"] & seeds["validation"]:
         raise ValueError("train and validation seeds overlap")
+
+
+def _verify_replay_paths(path: Path, seeds: list[int]) -> int:
+    try:
+        import numpy as np
+    except ImportError as error:
+        raise ValueError("exogenous release verification requires the uv release group") from error
+
+    try:
+        with np.load(path, allow_pickle=False) as arrays:
+            fields = {"episode_seed", "spot", "vol_observed", "strike"}
+            if set(arrays.files) != fields or len(arrays.files) != len(fields):
+                raise ValueError("expected exactly episode_seed, spot, vol_observed and strike")
+            actual_seeds = arrays["episode_seed"]
+            if actual_seeds.dtype.kind != "u" or actual_seeds.dtype.itemsize != 8:
+                raise ValueError("episode_seed must have dtype uint64")
+            if not np.array_equal(actual_seeds, np.asarray(seeds, dtype=np.uint64)):
+                raise ValueError("episode_seed differs from the ordered JSON split")
+            spot, vol, strike = (arrays[name] for name in ("spot", "vol_observed", "strike"))
+            if (
+                spot.ndim != 2
+                or spot.shape[0] != len(seeds)
+                or spot.shape[1] < 2
+                or vol.shape != spot.shape
+                or strike.shape != (len(seeds),)
+            ):
+                raise ValueError("invalid spot, volatility or strike shapes")
+            for values in (spot, vol, strike):
+                if (
+                    values.dtype.kind != "f"
+                    or values.dtype.itemsize != 8
+                    or not np.isfinite(values).all()
+                ):
+                    raise ValueError("spot, volatility and strike must be finite float64 arrays")
+            if (spot <= 0).any() or (strike <= 0).any() or (vol < 0).any():
+                raise ValueError("prices and strikes must be positive and volatility nonnegative")
+            return spot.shape[1] - 1
+    except (BadZipFile, EOFError, TypeError, ValueError) as error:
+        raise ValueError(f"{path.name}: {error}") from error
 
 
 def main() -> None:

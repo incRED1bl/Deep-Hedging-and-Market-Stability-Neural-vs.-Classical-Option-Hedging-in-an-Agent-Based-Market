@@ -123,20 +123,22 @@ Git, metadata, notebook или логи. В обычном CI Kaggle auth и upl
 Упаковщик собирает точный набор payload-файлов, проверяет принадлежность seed
 к train/validation по протоколу и записывает размеры и SHA256 в manifest.
 На вход подаётся отдельная папка с синтетическими payload-файлами. В режиме
-`exogenous_pretrain` сюда также входят NPZ, заранее сверенные с контрактом #9.
-Сборка проверяет целостность NPZ по хешам. Численные свойства и причинность
-признаков проверяет генератор при подготовке входов.
+`exogenous_pretrain` упаковщик и проверка скачанного релиза сверяют порядок
+`uint64` seeds в NPZ с каждым JSON-списком, формы и численные типы массивов,
+а также допустимость цен, страйков и волатильности. Генератор проверяет
+причинность признаков и соответствие параметрам #9.
 
 ```bash
-uv run python -m finmath.kaggle_package \
+uv run --group release python -m finmath.kaggle_package \
   "$FINMATH_SYNTHETIC_PAYLOAD" "$FINMATH_RELEASE_DIR" \
   --dataset "$FINMATH_DATASET" --title "$FINMATH_TITLE" \
   --mode "$FINMATH_GENERATION_MODE" --created-at "$FINMATH_RELEASE_CREATED_AT" \
   --commit "$FINMATH_GENERATOR_COMMIT" --protocol research/protocol-v1.json \
-  > "$FINMATH_LOCAL_PIN"
+  --pin-output "$FINMATH_LOCAL_PIN"
 ```
 
-Путь `FINMATH_LOCAL_PIN` указывает на файл вне каталога загрузки. После
+Путь `FINMATH_LOCAL_PIN` указывает на файл вне каталога загрузки. Команда
+заменяет pin только после успешной сборки. После
 публикации добавьте в pin фактические `dataset_version` и `local_path` по
 шаблону `kaggle/templates/artifact-pin.json.example`. Перед загрузкой сверьте
 численные входы и применимость лицензии ко всем payload-файлам.

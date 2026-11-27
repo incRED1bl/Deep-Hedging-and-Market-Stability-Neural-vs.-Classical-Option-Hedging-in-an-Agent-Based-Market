@@ -31,6 +31,7 @@ def stage_release(
     commit: str,
     lockfile: Path,
     protocol: Path,
+    pin_output: Path | None = None,
 ) -> dict:
     """Assemble and verify payload bytes. Return metadata for the external pin."""
     if DATASET_ID.fullmatch(dataset) is None:
@@ -47,6 +48,8 @@ def stage_release(
     release_id = dataset.split("/")[1]
     if output.exists() or output.is_symlink():
         raise ValueError(f"release directory already exists: {output}")
+    if pin_output is not None and pin_output.resolve().is_relative_to(output.resolve()):
+        raise ValueError("the external pin must be outside the release directory")
     expected = PAYLOADS[mode]
     entries = {path.name: path for path in source.iterdir()}
     if entries.keys() != expected or any(
@@ -125,7 +128,19 @@ def stage_release(
                 "licenses": [{"name": "copyright-authors"}],
             },
         )
-        staging.rename(output)
+        if pin_output is None:
+            staging.rename(output)
+        else:
+            pin_output.parent.mkdir(parents=True, exist_ok=True)
+            with TemporaryDirectory(dir=pin_output.parent) as pin_temp:
+                staged_pin = Path(pin_temp) / "artifact-pin.json"
+                shutil.copyfile(pin_path, staged_pin)
+                staging.rename(output)
+                try:
+                    staged_pin.replace(pin_output)
+                except OSError:
+                    output.rename(staging)
+                    raise
     return pin
 
 
@@ -139,6 +154,7 @@ def main() -> None:
     parser.add_argument("--created-at", required=True, help="fixed ISO-8601 UTC timestamp")
     parser.add_argument("--commit", required=True, help="full commit SHA of the generator")
     parser.add_argument("--lockfile", type=Path, default=Path("uv.lock"))
+    parser.add_argument("--pin-output", type=Path, help="publish the external pin at this path")
     parser.add_argument(
         "--protocol", type=Path, required=True, help="protocol JSON with seed ranges"
     )
