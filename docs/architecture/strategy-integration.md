@@ -51,6 +51,8 @@ cargo run --release -p market-sim --example run_scenario -- \
 
 The journal path must be a new directory. Use `leland` or `band` as alternatives to `bs`. The full fixture has 200 agents, 500 burn-in days, 2,000 observed days, a 20-day call tenor, and one-hundredth-share lots.
 
+The integrated USD fixture stores cash in units of $0.00000001. A $0.01 price tick is 1,000,000 cash units per share. At $100.23, a one-lot fill has a $1.0023 notional and costs each side $0.00100230 at 10 basis points. This scale represents every fee exactly on the fixture's price and lot grid at 0, 5, 10, 20 and 40 basis points.
+
 Each committed step produces a versioned JSON file, starting at `0000000000.json`. The opening record identifies the instrument, accounting units, effective scenario settings, reserve accounts, and starting postings. Later files contain prices, returns, volatility, lots per cohort, and all fill and cash postings. Cohort lot totals are decimal strings to preserve integer precision.
 
 Use the burn-in cutoff file for its live call marks. When burn-in is zero, the call issue prices are also the opening marks. The final file includes terminal marks plus lifetime and observed hedger P&L. The journal links each complete file into place before committing that day. On a failed publication, the prior completed market state and ledger remain available for retry.
@@ -61,7 +63,7 @@ Use the burn-in cutoff file for its live call marks. When burn-in is zero, the c
 
 `cargo bench -p market-sim --bench scenario` times all four policies using the full fixture and JSON disk journals. It times opening plus all trading days, excluding journal removal and compilation.
 
-One release run on arm64 macOS with Rust 1.99.1 measured the following wall times.
+One release run with the earlier cent-precision fixture on arm64 macOS with Rust 1.99.1 measured the following wall times.
 
 | Policy | 2,500 days | Days per second |
 | --- | ---: | ---: |

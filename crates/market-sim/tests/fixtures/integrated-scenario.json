@@ -3,8 +3,8 @@
   "seed": 1701,
   "instrument": {
     "quote_currency": "USD",
-    "cash_decimal_places": 2,
-    "tick_value_per_share": 1,
+    "cash_decimal_places": 8,
+    "tick_value_per_share": 1000000,
     "lot_size_micros": 10000,
     "initial_close_ticks": 10000
   },

@@ -6,13 +6,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use market_sim::application::ports::{ShockAddress, ShockSource};
 use market_sim::application::scenario::PopulationCounts;
 use market_sim::application::simulation::{DayRecord, JournalSink, Simulation, SimulationError};
-use market_sim::domain::accounting::ledger::{Ledger, PostingKind};
+use market_sim::domain::accounting::Portfolio;
+use market_sim::domain::accounting::ledger::{Ledger, Posting, PostingKind};
 use market_sim::domain::classical::{BandWidth, ClassicalMethod, ClassicalPolicy};
 use market_sim::domain::hedging::{HedgingPolicy, Observation, PolicyError, TargetPosition};
-use market_sim::domain::market::{OrderLimits, TickValuePerShare};
+use market_sim::domain::market::{Fill, OrderLimits, TickValuePerShare};
 use market_sim::domain::units::{
-    AgentId, AnnualizedVolatility, CashUnits, DomainError, FundingRate, LotSize, Lots, Money,
-    PriceTicks, TradingDays,
+    AgentId, AnnualizedVolatility, CashUnits, DomainError, FundingRate, LotSize, Lots, MarketStep,
+    Money, NetLots, OneWayCommissionRate, PriceTicks, TradingDays,
 };
 use market_sim::infrastructure::config::parse_scenario;
 use market_sim::infrastructure::journal::JsonDirectoryJournal;
@@ -21,6 +22,80 @@ use market_sim::infrastructure::shocks::SeededShocks;
 
 const SCENARIO: &str = include_str!("fixtures/integrated-scenario.json");
 const MODEL: &str = include_str!("fixtures/prototype-model.json");
+
+#[test]
+fn fractional_lot_fills_book_and_replay_subcent_commissions() {
+    let scenario = parse_scenario(SCENARIO).unwrap();
+    let instrument = scenario.instrument;
+    let tick = instrument.tick_value_per_share.get();
+    let cash = |amount| Money::new(tick.currency(), CashUnits::new(amount));
+    let portfolio = |lots, amount| Portfolio {
+        net_lots: NetLots::new(lots),
+        cash: cash(amount),
+    };
+    assert_eq!(scenario.cash_decimal_places.get(), 8);
+    assert_eq!(tick, cash(1_000_000));
+    assert_eq!(scenario.initial_close.get(), 10_000);
+
+    let buyer = AgentId::new(0);
+    let seller = AgentId::new(1);
+    let fee_account = AgentId::new(2);
+    let funding_account = AgentId::new(3);
+    let buyer_cash = 1_000_000_000;
+    let seller_cash = 100_000_000;
+    let opening = [
+        portfolio(0, buyer_cash),
+        portfolio(2, seller_cash),
+        portfolio(0, 0),
+        portfolio(0, 0),
+    ];
+    let step = MarketStep::new(1);
+    let price = PriceTicks::new(10_023).unwrap();
+    let rates = [0.0, 0.0005, 0.001, 0.002, 0.004];
+
+    // At $100.23 per share, one lot costs $1.0023 and two cost $2.0046.
+    for (lots, notional, fees) in [
+        (1, 100_230_000, [0, 50_115, 100_230, 200_460, 400_920]),
+        (2, 200_460_000, [0, 100_230, 200_460, 400_920, 801_840]),
+    ] {
+        let fill = Fill::new(buyer, seller, Lots::new(lots as u64).unwrap(), price).unwrap();
+        for (rate, fee) in rates.into_iter().zip(fees) {
+            let mut ledger =
+                Ledger::new(instrument, &opening, fee_account, funding_account).unwrap();
+            ledger
+                .book_fill(step, fill, OneWayCommissionRate::new(rate).unwrap())
+                .unwrap();
+            assert_eq!(
+                &ledger.postings()[opening.len()..],
+                &[Posting {
+                    step,
+                    kind: PostingKind::Fill {
+                        fill,
+                        notional: cash(notional),
+                        fee_per_side: cash(fee),
+                        fee_account,
+                    },
+                }],
+                "{lots} lots at commission rate {rate}"
+            );
+            let expected = [
+                portfolio(lots, buyer_cash - notional - fee),
+                portfolio(2 - lots, seller_cash + notional - fee),
+                portfolio(0, 2 * fee),
+                portfolio(0, 0),
+            ];
+            assert_eq!(ledger.portfolios(), expected);
+            ledger.check_conservation().unwrap();
+
+            let replayed =
+                Ledger::replay(instrument, fee_account, funding_account, ledger.postings())
+                    .unwrap();
+            assert_eq!(replayed.portfolios(), expected);
+            assert_eq!(replayed.postings(), ledger.postings());
+            replayed.check_conservation().unwrap();
+        }
+    }
+}
 
 #[derive(Default)]
 struct CapturedJournal(Vec<DayRecord>);
@@ -332,11 +407,12 @@ fn observed_pnl_is_rebased_to_marked_equity_after_burn_in() {
     let cutoff = run(0, 24);
     let full = run(0, 30);
     let observed = run(24, 6);
+    let ten_cents = (scenario.cash_decimal_places.units_per_currency() / 10) as u64;
     assert!(
         cutoff
             .lifetime_hedger_pnl
             .iter()
-            .any(|(_, pnl)| pnl.amount().get().unsigned_abs() > 10)
+            .any(|(_, pnl)| pnl.amount().get().unsigned_abs() > ten_cents)
     );
     assert_eq!(full.lifetime_hedger_pnl, observed.lifetime_hedger_pnl);
     for ((opening, at_close), window) in cutoff
