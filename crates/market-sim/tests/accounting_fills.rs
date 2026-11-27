@@ -3,12 +3,12 @@ use std::collections::BTreeMap;
 use market_sim::domain::{
     accounting::{
         OptionContract, Portfolio, PremiumPerShare,
-        ledger::{CALL_TENOR, Ledger, PostingKind, Rotation},
+        ledger::{AccountingError, CALL_TENOR, Ledger, PostingKind, Rotation},
     },
     market::{InstrumentSpec, Order, Side, TickValuePerShare, auction::clear_auction},
     units::{
-        AgentId, CashUnits, ContractId, ContractSize, CurrencyId, FundingRate, LotSize, Lots,
-        MarketStep, Money, NetLots, OneWayCommissionRate, PriceTicks, TradingDays,
+        AgentId, CashUnits, ContractId, ContractSize, CurrencyId, DomainError, FundingRate,
+        LotSize, Lots, MarketStep, Money, NetLots, OneWayCommissionRate, PriceTicks, TradingDays,
     },
 };
 
@@ -107,6 +107,12 @@ fn real_partial_fill_replays_the_hand_calculated_itm_atm_and_otm_pnl() {
         assert_eq!(ledger.portfolio(FUNDING), Some(&portfolio(0, -101)));
 
         let close = price(terminal);
+        let unsettled_postings = ledger.postings().len();
+        assert_eq!(
+            ledger.settle_expiring(MarketStep::new(expiry.get() + 1), close),
+            Err(AccountingError::OverdueContract(contract.id()))
+        );
+        assert_eq!(ledger.postings().len(), unsettled_postings);
         assert_eq!(ledger.settle_expiring(expiry, close).unwrap(), 1);
         assert_eq!(ledger.settle_expiring(expiry, close).unwrap(), 0);
         assert!(matches!(
@@ -180,5 +186,33 @@ fn forty_hedgers_roll_two_contracts_each_day_and_keep_losses_and_positions() {
         }
     }
     assert_eq!(ledger.active_calls().count(), 40);
+    ledger.check_conservation().unwrap();
+}
+
+#[test]
+fn funding_calculation_overflow_is_reported_and_reverts_earlier_transfers() {
+    let opening = [
+        portfolio(2, 100),
+        portfolio(0, i64::MAX / 2),
+        portfolio(0, 0),
+        portfolio(0, 0),
+        portfolio(0, 0),
+    ];
+    let mut ledger = Ledger::new(instrument(), &opening, FEES, FUNDING).unwrap();
+    let starting_postings = ledger.postings().to_vec();
+    // The first participant earns 300 cash units. The second calculation overflows.
+    let error = ledger
+        .accrue_funding(
+            TRADE,
+            &opening,
+            FundingRate::new(3.0).unwrap(),
+            TradingDays::new(1),
+        )
+        .unwrap_err();
+
+    assert_eq!(error, AccountingError::Domain(DomainError::Overflow));
+    assert_eq!(error.to_string(), "arithmetic overflow");
+    assert_eq!(ledger.portfolios(), opening);
+    assert_eq!(ledger.postings(), starting_postings);
     ledger.check_conservation().unwrap();
 }

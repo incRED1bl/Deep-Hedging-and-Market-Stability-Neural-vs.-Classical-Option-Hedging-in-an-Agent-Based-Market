@@ -227,10 +227,14 @@ fn a_call_settles_once_and_cannot_be_reissued() {
         ledger.book_fill(yesterday, fill(BUYER, SELLER), commission()),
         Err(AccountingError::BackdatedPosting(yesterday))
     );
+    let outstanding = ledger.postings().to_vec();
+    assert_eq!(ledger.settle_expiring(TODAY, price(20)), Ok(0));
     assert_eq!(
         ledger.settle_expiring(MarketStep::new(3), price(20)),
         Err(AccountingError::OverdueContract(ID))
     );
+    assert_eq!(ledger.postings(), outstanding);
+    assert_eq!(ledger.active_call(SELLER), Some(&call));
     assert_eq!(ledger.settle_expiring(TOMORROW, price(20)), Ok(1));
     assert_eq!(ledger.portfolio(BUYER), Some(&portfolio(2, 118)));
     assert_eq!(ledger.portfolio(SELLER), Some(&portfolio(-2, -118)));
@@ -259,17 +263,26 @@ fn transaction_error_restores_positions_and_option_registry() {
     let mut ledger = ledger();
     let opening = ledger.portfolios().to_vec();
     let call = make_call(0, money(1));
-    let result = ledger.transact(|ledger| {
-        ledger.issue_call(call)?;
-        ledger.book_fill(TODAY, fill(BUYER, SELLER), commission())?;
-        ledger.settle_expiring(TOMORROW, price(10))?;
-        Err::<(), _>(AccountingError::InvalidPosting)
-    });
-    assert_eq!(result, Err(AccountingError::InvalidPosting));
+    let book_day = |ledger: &mut Ledger, outcome: Result<(), AccountingError>| {
+        ledger.transact(|ledger| {
+            ledger.issue_call(call)?;
+            ledger.book_fill(TODAY, fill(BUYER, SELLER), commission())?;
+            ledger.settle_expiring(TOMORROW, price(10))?;
+            outcome
+        })
+    };
+    let failure = Err(AccountingError::InvalidPosting);
+    assert_eq!(book_day(&mut ledger, failure), failure);
     assert_eq!(ledger.postings().len(), opening.len());
     assert_eq!(ledger.portfolios(), opening);
     assert_eq!(ledger.active_calls().count(), 0);
-    assert_eq!(ledger.issue_call(call), Ok(()));
+
+    // The same contract ID can be issued again after rollback.
+    assert_eq!(book_day(&mut ledger, Ok(())), Ok(()));
+    assert_eq!(ledger.postings().len(), opening.len() + 3);
+    assert_eq!(ledger.portfolio(BUYER), Some(&portfolio(3, 81)));
+    assert_eq!(ledger.portfolio(SELLER), Some(&portfolio(-3, -85)));
+    assert_eq!(ledger.active_call(SELLER), None);
 }
 
 #[test]
