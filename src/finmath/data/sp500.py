@@ -12,6 +12,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from statistics import fmean, quantiles, stdev
 from tempfile import TemporaryDirectory
+from typing import Protocol
 from urllib.request import urlopen
 
 SERIES_URL = "https://fred.stlouisfed.org/series/SP500"
@@ -19,8 +20,34 @@ START = date(2017, 1, 1)
 SPLIT = date(2023, 1, 1)
 END = date(2025, 12, 31)
 CSV_URL = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id=SP500&cosd={START}&coed={END}"
+FRED_SNAPSHOT_SHA256 = "c953a834947844fadd96daaa6860e862fb16dc8b4952bf77c2456569e7c1bcd2"
 TRADING_DAYS_PER_YEAR = 252
 ACF_LAGS = (1, 2, 3, 4, 5, 10, 20)
+
+
+class SnapshotSource(Protocol):
+    """Supply raw S&P 500 CSV bytes, a verified digest, and source metadata."""
+
+    provider: str
+    series_url: str
+    download_url: str
+    snapshot_sha256: str
+
+    def download(self) -> bytes: ...
+
+
+class FredSP500Source:
+    provider = "S&P Dow Jones Indices LLC via FRED"
+    series_url = SERIES_URL
+    download_url = CSV_URL
+    snapshot_sha256 = FRED_SNAPSHOT_SHA256
+
+    def download(self) -> bytes:
+        with urlopen(self.download_url, timeout=30) as response:
+            return response.read()
+
+
+FRED_SOURCE = FredSP500Source()
 
 
 def read_observations(raw: bytes) -> dict[date, float | None]:
@@ -102,9 +129,17 @@ def describe_returns(returns: list[float]) -> dict:
     }
 
 
-def prepare(raw: bytes, output: Path, expected_sha256: str | None = None) -> dict:
+def prepare(
+    raw: bytes,
+    output: Path,
+    expected_sha256: str | None = None,
+    *,
+    source: SnapshotSource = FRED_SOURCE,
+    save_raw: Path | None = None,
+) -> dict:
     raw_sha256 = hashlib.sha256(raw).hexdigest()
-    if expected_sha256 is not None and expected_sha256 != raw_sha256:
+    pin = source.snapshot_sha256 if expected_sha256 is None else expected_sha256
+    if pin != raw_sha256:
         raise ValueError(f"source SHA256 mismatch: got {raw_sha256}")
     observations = read_observations(raw)
     audit = coverage(observations)
@@ -133,9 +168,9 @@ def prepare(raw: bytes, output: Path, expected_sha256: str | None = None) -> dic
         "schema_version": 1,
         "source": {
             "series": "SP500",
-            "provider": "S&P Dow Jones Indices LLC via FRED",
-            "series_url": SERIES_URL,
-            "download_url": CSV_URL,
+            "provider": source.provider,
+            "series_url": source.series_url,
+            "download_url": source.download_url,
             "raw_sha256": raw_sha256,
             "raw_size_bytes": len(raw),
             "price_definition": "daily close of the price index, in index points",
@@ -147,6 +182,13 @@ def prepare(raw: bytes, output: Path, expected_sha256: str | None = None) -> dic
         "coverage": audit,
         "splits": split_metadata,
     }
+    if save_raw is not None:
+        save_raw.parent.mkdir(parents=True, exist_ok=True)
+        with TemporaryDirectory(dir=save_raw.parent) as temp:
+            staged_raw = Path(temp) / "raw.csv"
+            staged_raw.write_bytes(raw)
+            save_raw.hardlink_to(staged_raw)
+
     output.parent.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(dir=output.parent) as temp:
         snapshot = Path(temp) / "snapshot"
@@ -164,25 +206,25 @@ def prepare(raw: bytes, output: Path, expected_sha256: str | None = None) -> dic
     return metadata
 
 
-def main() -> None:
+def main(argv: list[str] | None = None, *, source: SnapshotSource = FRED_SOURCE) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--raw", type=Path, default=Path("data/raw/fred-sp500.csv"))
     parser.add_argument("--output", type=Path, default=Path("data/processed/fred-sp500"))
     parser.add_argument("--download", action="store_true", help="fetch FRED CSV if --raw is absent")
-    parser.add_argument("--expected-sha256", help="reject differing source bytes")
-    args = parser.parse_args()
+    parser.add_argument(
+        "--expected-sha256", help="trusted digest of an independently verified replacement snapshot"
+    )
+    args = parser.parse_args(argv)
     try:
         fetch = args.download and not args.raw.exists()
-        if fetch:
-            with urlopen(CSV_URL, timeout=30) as response:
-                raw = response.read()
-        else:
-            raw = args.raw.read_bytes()
-        metadata = prepare(raw, args.output, args.expected_sha256)
-        if fetch:
-            args.raw.parent.mkdir(parents=True, exist_ok=True)
-            with args.raw.open("xb") as file:
-                file.write(raw)
+        raw = source.download() if fetch else args.raw.read_bytes()
+        metadata = prepare(
+            raw,
+            args.output,
+            args.expected_sha256,
+            source=source,
+            save_raw=args.raw if fetch else None,
+        )
     except (OSError, ValueError, csv.Error) as error:
         parser.exit(1, f"FRED SP500 preparation failed: {error}\n")
     print(f"Wrote {args.output}; source SHA256: {metadata['source']['raw_sha256']}")
