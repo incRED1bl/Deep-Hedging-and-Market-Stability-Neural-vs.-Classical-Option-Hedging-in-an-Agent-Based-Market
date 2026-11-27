@@ -4,11 +4,16 @@ use std::io;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use market_sim::application::ports::{ShockAddress, ShockSource};
+use market_sim::application::scenario::PopulationCounts;
 use market_sim::application::simulation::{DayRecord, JournalSink, Simulation, SimulationError};
 use market_sim::domain::accounting::ledger::{Ledger, PostingKind};
 use market_sim::domain::classical::{BandWidth, ClassicalMethod, ClassicalPolicy};
 use market_sim::domain::hedging::{HedgingPolicy, Observation, PolicyError, TargetPosition};
-use market_sim::domain::units::{AgentId, FundingRate, TradingDays};
+use market_sim::domain::market::{OrderLimits, TickValuePerShare};
+use market_sim::domain::units::{
+    AgentId, AnnualizedVolatility, CashUnits, DomainError, FundingRate, LotSize, Lots, Money,
+    PriceTicks, TradingDays,
+};
 use market_sim::infrastructure::config::parse_scenario;
 use market_sim::infrastructure::journal::JsonDirectoryJournal;
 use market_sim::infrastructure::neural_policy::NeuralPolicy;
@@ -378,9 +383,6 @@ fn large_negative_rates_produce_finite_call_marks() {
 
 #[test]
 fn invalid_scenario_and_overflow_report_the_failed_operation() {
-    use market_sim::domain::market::TickValuePerShare;
-    use market_sim::domain::units::{CashUnits, Money, PriceTicks};
-
     let scenario = parse_scenario(SCENARIO).unwrap();
     let neural = NeuralPolicy::from_json(MODEL, scenario.trading_days_per_year).unwrap();
     let mut journal = CapturedJournal::default();
@@ -416,4 +418,104 @@ fn invalid_scenario_and_overflow_report_the_failed_operation() {
     assert_eq!(error.to_string(), "arithmetic overflow");
     assert_eq!(simulation.state().step.get(), 0);
     assert_eq!(simulation.ledger().postings(), opening_postings);
+}
+
+#[test]
+fn a_market_with_no_hedgers_runs_without_quoting_issue_premiums() {
+    let mut scenario = parse_scenario(SCENARIO).unwrap();
+    scenario.population = PopulationCounts {
+        fundamentalists: 0,
+        trend_traders: 0,
+        noise_traders: 1,
+        hedgers: 0,
+    };
+    scenario.burn_in = TradingDays::new(0);
+    scenario.observed_days = TradingDays::new(2);
+    scenario.initial_close = PriceTicks::new(u64::MAX).unwrap();
+    let currency = scenario.instrument.tick_value_per_share.get().currency();
+    scenario.instrument.tick_value_per_share =
+        TickValuePerShare::new(Money::new(currency, CashUnits::new(i64::MAX))).unwrap();
+    let policy = NeuralPolicy::from_json(MODEL, scenario.trading_days_per_year).unwrap();
+    let mut journal = CapturedJournal::default();
+
+    Simulation::new(scenario, &policy, &SeededShocks, &mut journal)
+        .unwrap()
+        .run()
+        .unwrap();
+
+    assert_eq!(journal.0.len(), 3);
+    assert!(
+        journal
+            .0
+            .iter()
+            .flat_map(|day| &day.postings)
+            .all(|posting| { !matches!(posting.kind, PostingKind::OptionIssue { .. }) })
+    );
+    let terminal = journal.0[2].terminal.as_ref().unwrap();
+    assert!(terminal.live_call_marks.is_empty());
+    assert!(terminal.observed_hedger_pnl.is_empty());
+}
+
+#[test]
+fn an_empty_rotation_phase_keeps_live_call_marks_and_skips_the_issue_quote() {
+    let mut scenario = parse_scenario(SCENARIO).unwrap();
+    scenario.seed = 0;
+    scenario.population = PopulationCounts {
+        fundamentalists: 0,
+        trend_traders: 0,
+        noise_traders: 10,
+        hedgers: 1,
+    };
+    scenario.burn_in = TradingDays::new(1);
+    scenario.observed_days = TradingDays::new(1);
+    scenario.initial_close = PriceTicks::new(10_000_000_000).unwrap();
+    scenario.initial_volatility = AnnualizedVolatility::new(0.0).unwrap();
+    let currency = scenario.instrument.tick_value_per_share.get().currency();
+    scenario.instrument.tick_value_per_share =
+        TickValuePerShare::new(Money::new(currency, CashUnits::new(500_000_000_000))).unwrap();
+    // Micro lots keep fill notionals representable at a tick value that overflows the issue quote.
+    scenario.instrument.lot_size = LotSize::new(1).unwrap();
+    scenario.limits = OrderLimits::new(
+        Lots::new(3).unwrap(),
+        scenario.limits.max_abs_position_lots(),
+    )
+    .unwrap();
+    let policy = ClassicalPolicy::new(
+        ClassicalMethod::Band {
+            width: BandWidth::new(1.0).unwrap(),
+        },
+        scenario.funding_rate,
+        scenario.trading_days_per_year,
+    )
+    .unwrap();
+    let mut journal = CapturedJournal::default();
+
+    let mut simulation = Simulation::new(scenario, &policy, &SeededShocks, &mut journal).unwrap();
+    assert!(simulation.advance().unwrap());
+    assert_eq!(simulation.ledger().active_calls().count(), 1);
+    let day = &journal.0[1];
+    assert!(!day.market.fills.is_empty());
+    assert!(
+        day.postings
+            .iter()
+            .all(|posting| { !matches!(posting.kind, PostingKind::OptionIssue { .. }) })
+    );
+    assert_eq!(day.burn_in_marks.as_ref().unwrap().len(), 1);
+
+    // The second seller makes the same premium quote necessary on day one.
+    scenario.population.hedgers = 2;
+    let mut journal = CapturedJournal::default();
+    let mut simulation = Simulation::new(scenario, &policy, &SeededShocks, &mut journal).unwrap();
+    let opening_state = simulation.state();
+    let opening_postings = simulation.ledger().postings().to_vec();
+    let opening_portfolios = simulation.ledger().portfolios().to_vec();
+    assert!(matches!(
+        simulation.advance(),
+        Err(SimulationError::Domain(DomainError::Overflow))
+    ));
+    assert_eq!(simulation.state(), opening_state);
+    assert_eq!(simulation.ledger().postings(), opening_postings);
+    assert_eq!(simulation.ledger().portfolios(), opening_portfolios);
+    assert_eq!(simulation.ledger().active_calls().count(), 1);
+    assert_eq!(journal.0.len(), 1);
 }

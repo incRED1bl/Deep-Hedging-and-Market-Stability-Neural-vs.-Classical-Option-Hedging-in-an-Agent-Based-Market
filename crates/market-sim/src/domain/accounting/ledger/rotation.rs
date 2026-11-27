@@ -47,20 +47,32 @@ impl Rotation {
         close: PriceTicks,
         premium: PremiumPerShare,
     ) -> Result<usize, AccountingError> {
+        self.issue_due_with(ledger, step, close, || Ok(premium))
+    }
+
+    /// Obtain the premium once for a phase that issues calls.
+    pub(crate) fn issue_due_with<E: From<AccountingError>>(
+        &self,
+        ledger: &mut Ledger,
+        step: MarketStep,
+        close: PriceTicks,
+        quote: impl FnOnce() -> Result<PremiumPerShare, E>,
+    ) -> Result<usize, E> {
         let phase = (step.get() % self.tenor.get()) as usize;
+        if phase >= self.pairs.len() {
+            return Ok(0);
+        }
+        let premium = quote()?;
         let due = self
             .pairs
             .iter()
             .enumerate()
             .skip(phase)
             .step_by(self.tenor.get() as usize);
-        if phase >= self.pairs.len() {
-            return Ok(0);
-        }
         let expires_at = MarketStep::new(
             step.get()
                 .checked_add(self.tenor.get())
-                .ok_or(DomainError::Overflow)?,
+                .ok_or(AccountingError::from(DomainError::Overflow))?,
         );
         // At most 2^32 distinct sellers are possible in one rotation.
         let first_id = u64::from(step.get()) * self.pairs.len() as u64;

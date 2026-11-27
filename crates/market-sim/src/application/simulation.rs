@@ -135,8 +135,10 @@ impl<'a> Simulation<'a> {
         let rotation = Rotation::new(pairs, scenario.call.size, scenario.call.maturity)?;
         let mut ledger = Ledger::new(scenario.instrument, &opening, fee_account, funding_account)?;
         let state = market.state();
-        let premium = quote_call(scenario, state, state.close, scenario.call.maturity)?;
-        rotation.issue_due(&mut ledger, state.step, state.close, premium)?;
+        rotation.issue_due_with(&mut ledger, state.step, state.close, || {
+            quote_call(scenario, state, state.close, scenario.call.maturity)
+                .map_err(SimulationError::from)
+        })?;
         journal
             .publish(&DayRecord {
                 market: MarketRecord {
@@ -252,10 +254,11 @@ impl<'a> Simulation<'a> {
                     let terminal = if last {
                         Some(value_at_close(ledger)?)
                     } else {
-                        let premium =
-                            quote_call(scenario, next, next.close, scenario.call.maturity)?;
                         self.rotation
-                            .issue_due(ledger, next.step, next.close, premium)?;
+                            .issue_due_with(ledger, next.step, next.close, || {
+                                quote_call(scenario, next, next.close, scenario.call.maturity)
+                                    .map_err(SimulationError::from)
+                            })?;
                         None
                     };
                     let (baseline, burn_in_marks) = if next.step.get() == scenario.burn_in.get() {
