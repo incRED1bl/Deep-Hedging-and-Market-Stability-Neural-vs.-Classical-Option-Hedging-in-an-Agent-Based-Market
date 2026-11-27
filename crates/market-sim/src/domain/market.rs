@@ -184,25 +184,38 @@ impl OrderLimits {
             return self.limit_order(agent, held, 0, limit);
         }
 
-        let buy = target.target_shares > opening_shares;
+        let (micros, fractional) = floor_target_micros(target.target_shares.get());
+        let lot_micros = i128::from(instrument.lot_size.get());
+        let lower = micros.div_euclid(lot_micros);
+        let upper = lower + i128::from(fractional || micros.rem_euclid(lot_micros) != 0);
+        let held_lots = i128::from(held.get());
         let cap = i128::from(self.max_abs_position_lots.get());
-        let mut low = -cap;
-        let mut high = cap + 1;
-        // Compare boundaries in the same representation used to construct observations.
-        // Buying selects the highest boundary at or below the target. Selling selects
-        // the lowest boundary at or above it.
-        while low < high {
-            let middle = low + (high - low) / 2;
-            let shares = instrument.shares(NetLots::new(middle as i64));
-            let below = shares < target.target_shares;
-            if below || (buy && shares == target.target_shares) {
-                low = middle + 1;
+
+        // Target shares can be the floating-point image of a fractional lot boundary.
+        // Recognize it when a single lot count maps to that target.
+        let desired = if lower == upper {
+            lower
+        } else if held_lots <= lower {
+            if upper <= cap && uniquely_represents(instrument, target.target_shares, upper as i64) {
+                upper
             } else {
-                high = middle;
+                lower
             }
-        }
-        let desired = if buy { low - 1 } else { low };
-        let requested = desired - i128::from(held.get());
+        } else if lower >= -cap
+            && uniquely_represents(instrument, target.target_shares, lower as i64)
+        {
+            lower
+        } else {
+            upper
+        };
+        // The target's direction relative to the published opening observation
+        // also applies where nearby floating-point values alias integer lots.
+        let requested = desired - held_lots;
+        let requested = if target.target_shares > opening_shares {
+            requested.max(0)
+        } else {
+            requested.min(0)
+        };
         self.limit_order(agent, held, requested, limit)
     }
 
@@ -231,6 +244,46 @@ impl OrderLimits {
         let side = if permitted > 0 { Side::Buy } else { Side::Sell };
         Ok(Some(Order::new(agent, side, lots, limit)))
     }
+}
+
+/// Floor the exact binary64 target on the millionth-of-a-share scale.
+fn floor_target_micros(shares: f64) -> (i128, bool) {
+    // Even i64::MIN lots of the largest lot size have fewer than 2^96 micros.
+    const LIMIT: i128 = 1 << 96;
+    let scale = f64::from(LotSize::MICROS_PER_SHARE);
+    let scaled = shares * scale;
+    if scaled >= LIMIT as f64 {
+        return (LIMIT, false);
+    }
+    if scaled <= -LIMIT as f64 {
+        return (-LIMIT, false);
+    }
+    if scaled.fract() != 0.0 {
+        // Nearest rounding cannot cross an exactly representable integer boundary here.
+        return (scaled.floor() as i128, true);
+    }
+    // The fused operation recovers the error of the rounded product. It can represent
+    // several whole micros at large targets, or move an integer result across zero.
+    let error = shares.mul_add(scale, -scaled);
+    (scaled as i128 + error.floor() as i128, error.fract() != 0.0)
+}
+
+fn uniquely_represents(instrument: InstrumentSpec, target: Shares, lots: i64) -> bool {
+    if instrument.shares(NetLots::new(lots)) != target
+        || [lots.checked_sub(1), lots.checked_add(1)]
+            .into_iter()
+            .flatten()
+            .any(|neighbor| instrument.shares(NetLots::new(neighbor)) == target)
+    {
+        return false;
+    }
+
+    // Keep the boundary bracketed by the floats adjacent to the observation,
+    // even when the integer-to-float conversion and scaling rounded separately.
+    let boundary = i128::from(lots) * i128::from(instrument.lot_size.get());
+    let (previous, fractional) = floor_target_micros(target.get().next_down());
+    let (next, _) = floor_target_micros(target.get().next_up());
+    (previous < boundary || (previous == boundary && !fractional)) && boundary <= next
 }
 
 #[cfg(test)]
@@ -307,6 +360,48 @@ mod tests {
         assert_eq!(order(-204, short).unwrap().unwrap().lots().get(), 1);
         assert_eq!(order(205, long), Ok(None));
         assert_eq!(order(-205, short), Ok(None));
+    }
+
+    #[test]
+    fn large_targets_use_exact_lot_boundaries_when_float_observations_alias() {
+        let cap = Lots::new(i64::MAX as u64).unwrap();
+        let limits = OrderLimits::new(cap, cap).unwrap();
+        let unit = instrument(LotSize::MICROS_PER_SHARE, 1);
+        let micro = instrument(1, 1);
+        let price = PriceTicks::new(100).unwrap();
+        let agent = AgentId::new(3);
+        let order = |instrument, held, target| {
+            limits.hedge_order(
+                instrument,
+                agent,
+                NetLots::new(held),
+                TargetPosition {
+                    target_shares: Shares::new(target).unwrap(),
+                },
+                price,
+            )
+        };
+
+        let boundary = 1_i64 << 54;
+        let target = boundary as f64;
+        let micro_held = (1_i64 << 43) * i64::from(LotSize::MICROS_PER_SHARE);
+        let micro_target = ((1_u64 << 43) as f64).next_up();
+        for (spec, held, target, expected) in [
+            (unit, boundary - 2, target, 2),
+            (unit, boundary - 2, target.next_down(), 0),
+            (unit, boundary - 2, target.next_up(), 6),
+            (unit, boundary + 1, target, 0),
+            (micro, micro_held, micro_target, 1_953),
+            (unit, i64::MAX - 1, f64::MAX, 1),
+        ] {
+            for (sign, side) in [(1_i64, Side::Buy), (-1_i64, Side::Sell)] {
+                let placed = order(spec, held * sign, target * sign as f64).unwrap();
+                assert_eq!(
+                    placed.map(|placed| (placed.side(), placed.lots().get())),
+                    (expected != 0).then_some((side, expected)),
+                );
+            }
+        }
     }
 
     #[test]
