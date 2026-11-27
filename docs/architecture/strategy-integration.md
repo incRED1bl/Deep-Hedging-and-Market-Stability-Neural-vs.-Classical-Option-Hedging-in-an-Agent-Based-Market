@@ -30,6 +30,14 @@ The six neural input columns are log moneyness, trading years remaining, annuali
 
 The [prototype weights](../../crates/market-sim/tests/fixtures/prototype-model.json) are fixture values. Final research use requires reconciliation with the financial reference in #5, the baseline rules in #10, and the trained checkpoint in #12.
 
+### Provisional rate conventions
+
+Black–Scholes pricing and delta use a continuously compounded rate with `T = remaining_days / trading_days_per_year`. The ledger accrues simple daily cash interest at `rate / trading_days_per_year`. Reconcile these conventions with the financial reference in #5.
+
+The control uses zero volatility, a $100 strike, a 25% annual rate, one day to expiry, and one trading day per year. The continuously discounted strike is $77.88. The issue premium at a $100 spot is $22.12 per share. The mark at a $120 spot is $42.12 per share.
+
+Under simple daily cash funding, an $80 deposit grows to $100 over the same interval. Using that discount would give a $40 mark at a $120 spot. At a $79 spot the continuous rate gives a call delta of one, while the simple rate would give zero.
+
 ## Run and inspect a scenario
 
 ```sh

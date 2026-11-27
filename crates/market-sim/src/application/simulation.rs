@@ -356,3 +356,91 @@ fn value_hedgers(
         observed_hedger_pnl,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::application::scenario::PopulationCounts;
+    use crate::domain::classical::{ClassicalMethod, ClassicalPolicy};
+    use crate::domain::units::{AnnualizedVolatility, FundingRate, Shares};
+    use crate::infrastructure::config::parse_scenario;
+    use crate::infrastructure::shocks::SeededShocks;
+
+    struct DiscardJournal;
+
+    impl JournalSink for DiscardJournal {
+        fn publish(&mut self, _day: &DayRecord) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn option_discounting_and_simple_cash_funding_use_their_configured_conventions() {
+        let mut scenario =
+            parse_scenario(include_str!("../../tests/fixtures/simulation-config.json")).unwrap();
+        let one_day = TradingDays::new(1);
+        scenario.initial_volatility = AnnualizedVolatility::new(0.0).unwrap();
+        scenario.burn_in = TradingDays::new(0);
+        scenario.observed_days = one_day;
+        scenario.trading_days_per_year = one_day;
+        scenario.funding_rate = FundingRate::new(0.25).unwrap();
+        scenario.call.maturity = one_day;
+        scenario.population = PopulationCounts {
+            fundamentalists: 0,
+            trend_traders: 0,
+            noise_traders: 0,
+            hedgers: 1,
+        };
+        let currency = scenario.instrument.tick_value_per_share.get().currency();
+        let cash = |cents| Money::new(currency, CashUnits::new(cents));
+        let policy = ClassicalPolicy::new(
+            ClassicalMethod::BlackScholes,
+            scenario.funding_rate,
+            scenario.trading_days_per_year,
+        )
+        .unwrap();
+        let mut journal = DiscardJournal;
+        let simulation = Simulation::new(scenario, &policy, &SeededShocks, &mut journal).unwrap();
+        let seller = AgentId::new(0);
+        let call = simulation.ledger().active_call(seller).unwrap();
+
+        // The discounted $100 strike is $77.88 at a continuous rate of 25%.
+        assert_eq!(call.premium_per_share().get(), cash(2_212));
+        let state = MarketState {
+            close: PriceTicks::new(12_000).unwrap(),
+            ..simulation.state()
+        };
+        let valuation =
+            value_hedgers(scenario, state, simulation.ledger(), &[seller], &[cash(0)]).unwrap();
+        assert_eq!(valuation.live_call_marks[&call.id()].get(), cash(4_212));
+
+        // A $79 spot exceeds the continuously discounted strike.
+        let shares_held = Shares::new(0.0).unwrap();
+        let observation = Observation {
+            as_of: state.step,
+            shares_held,
+            annualized_volatility: state.annualized_volatility,
+            commission: scenario.commission,
+            call: Some(CallObservation {
+                moneyness: Moneyness::new(0.79).unwrap(),
+                time_to_expiry: one_day,
+                underlying_exposure: CallExposure::Short(call.size()),
+            }),
+        };
+        let mut targets = [TargetPosition {
+            target_shares: shares_held,
+        }];
+        policy.targets(&[observation], &mut targets).unwrap();
+        assert_eq!(targets[0].target_shares.get(), 1.0);
+
+        // With simple daily cash funding, $80 grows to $100 in one day.
+        let deposit = cash(8_000);
+        let interest = scenario
+            .funding_rate
+            .daily_interest(deposit, scenario.trading_days_per_year)
+            .unwrap();
+        assert_eq!(interest, cash(2_000));
+        assert_eq!(deposit.checked_add(interest).unwrap(), cash(10_000));
+        assert_eq!(cash(12_000).checked_sub(deposit).unwrap(), cash(4_000));
+    }
+}
