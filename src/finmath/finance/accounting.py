@@ -7,6 +7,7 @@ AI assistance: ChatGPT; independent integer arithmetic and hand-calculated tests
 
 from dataclasses import dataclass, replace
 from decimal import ROUND_HALF_UP, Decimal
+from math import isfinite
 
 RATE_SCALE = 1_000_000_000
 SHARE_SCALE = 1_000_000
@@ -23,10 +24,12 @@ def _round_ratio(numerator: int, denominator: int) -> int:
 
 
 def _rate_units(rate: float, *, nonnegative: bool = False) -> int:
-    value = Decimal(str(rate))
-    if not value.is_finite() or (nonnegative and value < 0):
+    value = float(rate)
+    scaled = value * RATE_SCALE
+    if not isfinite(scaled) or (nonnegative and value < 0) or not -(2**63) <= scaled < 2**63:
         raise ValueError("invalid rate")
-    return int((value * RATE_SCALE).to_integral_value(rounding=ROUND_HALF_UP))
+    # Match Rust f64 multiplication followed by round(), including binary tie boundaries.
+    return _round_ratio(*scaled.as_integer_ratio())
 
 
 def normalized_shortfall(pnl_units: int, issue_spot_units: int, size_shares: int) -> float:

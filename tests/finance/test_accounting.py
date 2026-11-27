@@ -15,22 +15,24 @@ CENT = Instrument(2, 1, 1_000_000)
 
 @pytest.mark.parametrize(
     "close,expected_cash,expected_pnl",
-    [(11_000, 8511, 1511), (10_000, 10511, 511), (9000, 10511, -2489)],
+    [(11_000, 8522, 1522), (10_000, 10522, 522), (9000, 10522, -2478)],
 )
 def test_partial_fill_funding_and_settlement_match_manual_example(
     close: int, expected_cash: int, expected_pnl: int
 ) -> None:
     opening = HedgeAccount(CENT, 20_000, net_lots=2)
     baseline = opening.equity(10_000)
-    issued = opening.issue(ShortCall(2, 10_000, 250, 0, 1))
+    issued = opening.issue(ShortCall(2, 10_000, 250, 0, 2))
     # Target was +3 shares, but only one share actually filled.
-    end = issued.advance_day(
-        close,
+    first = issued.advance_day(
+        10_000,
         (Fill(1, 10_000),),
         commission=0.001,
         annual_funding_rate=0.252,
         days_per_year=252,
     )
+    assert first.cash_units == 10511
+    end = first.advance_day(close, annual_funding_rate=0.252)
     assert baseline == 40_000
     assert end.net_lots == 3
     assert end.cash_units == expected_cash
@@ -121,11 +123,14 @@ def test_shared_financial_fixtures_match_the_reference() -> None:
         start = HedgeAccount(CENT, case["opening_cash_units"], case["opening_lots"])
         base = start.equity(case["opening_price_ticks"])
         account = start.issue(ShortCall(**case["call"]))
-        end = account.advance_day(
-            case["close_ticks"],
+        first = account.advance_day(
+            case["first_close_ticks"],
             tuple(Fill(**fill) for fill in case["fills"]),
             commission=case["commission"],
             annual_funding_rate=case["annual_funding_rate"],
+        )
+        end = first.advance_day(
+            case["close_ticks"], annual_funding_rate=case["annual_funding_rate"]
         )
         assert end.cash_units == case["expected_cash_units"]
         assert end.pnl(base, case["close_ticks"]) == case["expected_pnl_units"]
@@ -136,3 +141,12 @@ def test_normalized_shortfall_sign_and_units() -> None:
     assert normalized_shortfall(1511, 10_000, 2) == pytest.approx(-0.07555)
     with pytest.raises(ValueError):
         normalized_shortfall(100, 0, 1)
+
+
+def test_binary_float_rate_boundaries_match_the_shared_rust_fixture() -> None:
+    path = Path(__file__).parent.parent / "fixtures/finance-reference.json"
+    for case in json.loads(path.read_text())["rate_cases"]:
+        amount, rate, expected = case["notional_units"], case["rate"], case["expected_units"]
+        assert CENT.funding(amount, rate, 1) == expected
+        if rate >= 0:
+            assert CENT.fee(amount, rate) == expected

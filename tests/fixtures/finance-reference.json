@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source": "Hand-calculated issue #8 example; independent Python reference for issue #5. AI assistance: ChatGPT.",
+  "source": "Hand-calculated two-day partial-fill/expiry scenarios for issue #5. AI assistance: ChatGPT.",
   "instrument": {
     "cash_decimal_places": 2,
     "tick_value_per_share": 1,
@@ -43,7 +43,7 @@
         "strike_ticks": 10000,
         "premium_per_share_units": 250,
         "issued_at": 0,
-        "expires_at": 1
+        "expires_at": 2
       },
       "fills": [
         {
@@ -54,8 +54,9 @@
       "commission": 0.001,
       "annual_funding_rate": 0.252,
       "close_ticks": 11000,
-      "expected_cash_units": 8511,
-      "expected_pnl_units": 1511
+      "expected_cash_units": 8522,
+      "expected_pnl_units": 1522,
+      "first_close_ticks": 10000
     },
     {
       "name": "atm",
@@ -67,7 +68,7 @@
         "strike_ticks": 10000,
         "premium_per_share_units": 250,
         "issued_at": 0,
-        "expires_at": 1
+        "expires_at": 2
       },
       "fills": [
         {
@@ -78,8 +79,9 @@
       "commission": 0.001,
       "annual_funding_rate": 0.252,
       "close_ticks": 10000,
-      "expected_cash_units": 10511,
-      "expected_pnl_units": 511
+      "expected_cash_units": 10522,
+      "expected_pnl_units": 522,
+      "first_close_ticks": 10000
     },
     {
       "name": "otm",
@@ -91,7 +93,7 @@
         "strike_ticks": 10000,
         "premium_per_share_units": 250,
         "issued_at": 0,
-        "expires_at": 1
+        "expires_at": 2
       },
       "fills": [
         {
@@ -102,8 +104,31 @@
       "commission": 0.001,
       "annual_funding_rate": 0.252,
       "close_ticks": 9000,
-      "expected_cash_units": 10511,
-      "expected_pnl_units": -2489
+      "expected_cash_units": 10522,
+      "expected_pnl_units": -2478,
+      "first_close_ticks": 10000
+    }
+  ],
+  "rate_cases": [
+    {
+      "rate": 0.0005000005,
+      "notional_units": 1000000000,
+      "expected_units": 500000
+    },
+    {
+      "rate": -0.0005000005,
+      "notional_units": 1000000000,
+      "expected_units": -500000
+    },
+    {
+      "rate": 5e-10,
+      "notional_units": 1000000000,
+      "expected_units": 1
+    },
+    {
+      "rate": -5e-10,
+      "notional_units": 1000000000,
+      "expected_units": -1
     }
   ]
 }

@@ -38,6 +38,7 @@ fn cash_flows_from_actual_partial_fills_match_the_python_reference_fixtures() {
         ];
         let auction = clear_auction(MarketStep::new(1), price, &orders).unwrap();
         let fill = auction.fills[0];
+        assert_eq!(auction.close.get(), at("first_close_ticks") as u64);
         assert_eq!(fill.lots().get(), 1);
         let premium = call["premium_per_share_units"].as_i64().unwrap()
             * call["size_shares"].as_i64().unwrap();
@@ -51,19 +52,44 @@ fn cash_flows_from_actual_partial_fills_match_the_python_reference_fixtures() {
             .unwrap()
             .daily_interest(opening_cash, TradingDays::new(252))
             .unwrap();
-        let close = at("close_ticks") as u64;
+        let first_cash = opening_cash
+            .checked_sub(notional)
+            .unwrap()
+            .checked_sub(fee)
+            .unwrap()
+            .checked_add(interest)
+            .unwrap();
+        // The hedger does not trade on day two. Other participants set the expiry close.
+        let expiry_price = PriceTicks::new(at("close_ticks") as u64).unwrap();
+        let expiry_orders = [
+            Order::new(
+                AgentId::new(2),
+                Side::Buy,
+                Lots::new(1).unwrap(),
+                expiry_price,
+            ),
+            Order::new(
+                AgentId::new(3),
+                Side::Sell,
+                Lots::new(1).unwrap(),
+                expiry_price,
+            ),
+        ];
+        let expiry = clear_auction(MarketStep::new(2), auction.close, &expiry_orders).unwrap();
+        assert_eq!(call["expires_at"].as_u64().unwrap(), 2);
+        let close = expiry.close.get();
+        let expiry_interest = FundingRate::new(case["annual_funding_rate"].as_f64().unwrap())
+            .unwrap()
+            .daily_interest(first_cash, TradingDays::new(252))
+            .unwrap();
         let payoff = instrument
             .option_notional(
                 close.saturating_sub(call["strike_ticks"].as_u64().unwrap()),
                 ContractSize::new(call["size_shares"].as_u64().unwrap() as u32).unwrap(),
             )
             .unwrap();
-        let cash = opening_cash
-            .checked_sub(notional)
-            .unwrap()
-            .checked_sub(fee)
-            .unwrap()
-            .checked_add(interest)
+        let cash = first_cash
+            .checked_add(expiry_interest)
             .unwrap()
             .checked_sub(payoff)
             .unwrap();
@@ -87,5 +113,42 @@ fn cash_flows_from_actual_partial_fills_match_the_python_reference_fixtures() {
             cash.amount().get() + stock.amount().get() - opening_value,
             at("expected_pnl_units")
         );
+    }
+}
+
+#[test]
+fn binary_float_rate_boundaries_match_the_shared_python_fixture() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/finance-reference.json"
+    ))
+    .unwrap();
+    let currency = CurrencyId::new(*b"USD").unwrap();
+    for case in fixture["rate_cases"].as_array().unwrap() {
+        let rate = case["rate"].as_f64().unwrap();
+        let amount = Money::new(
+            currency,
+            CashUnits::new(case["notional_units"].as_i64().unwrap()),
+        );
+        let expected = case["expected_units"].as_i64().unwrap();
+        assert_eq!(
+            FundingRate::new(rate)
+                .unwrap()
+                .daily_interest(amount, TradingDays::new(1))
+                .unwrap()
+                .amount()
+                .get(),
+            expected
+        );
+        if rate >= 0.0 {
+            assert_eq!(
+                OneWayCommissionRate::new(rate)
+                    .unwrap()
+                    .apply(amount)
+                    .unwrap()
+                    .amount()
+                    .get(),
+                expected
+            );
+        }
     }
 }
