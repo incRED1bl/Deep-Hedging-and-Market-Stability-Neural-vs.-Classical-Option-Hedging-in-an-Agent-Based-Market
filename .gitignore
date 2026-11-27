@@ -1,0 +1,53 @@
+# Python / uv
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Rust / Cargo
+/target/
+
+# Local credentials and configuration
+.env
+.env.*
+!.env.example
+kaggle.json
+.kaggle/
+access_token
+*.pem
+*.key
+
+# Reproducible data / run outputs stay outside Git.
+# Small synthetic test fixtures belong in tests/fixtures/.
+/data/raw/
+/data/interim/
+/data/processed/
+/data/synthetic/
+/data/kaggle-upload/
+/data/kaggle-download/
+/artifacts/
+/outputs/
+/runs/
+/checkpoints/
+/models/
+/wandb/
+/mlruns/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+/kaggle/local-kernel/
+.ipynb_checkpoints/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
