@@ -108,6 +108,20 @@ fn allocation_is_permutation_invariant_and_rotates_tied_orders() {
 }
 
 #[test]
+fn tied_sellers_rotate_across_market_steps() {
+    let orders = [
+        order(1, Side::Buy, 1, 102),
+        order(2, Side::Sell, 1, 99),
+        order(3, Side::Sell, 1, 99),
+    ];
+    let first = clear_auction(MarketStep::new(2), price(100), &orders).unwrap();
+    let next = clear_auction(MarketStep::new(3), price(100), &orders).unwrap();
+
+    assert_eq!(first.fills, [fill(1, 2, 1, 100)]);
+    assert_eq!(next.fills, [fill(1, 3, 1, 100)]);
+}
+
+#[test]
 fn unfilled_books_keep_the_prior_close() {
     let bid = order(1, Side::Buy, 1, 98);
     let ask = order(2, Side::Sell, 1, 102);
