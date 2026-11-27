@@ -8,6 +8,7 @@ from finmath.calibration.objective import evaluate, evaluate_holdout, rank_candi
 
 def snapshot(volatility: float = 0.2) -> dict:
     return {
+        "config_sha256": "c" * 64,
         "return_count": 30,
         "annualized_volatility": volatility,
         "daily_volatility": 0.01,
@@ -64,7 +65,12 @@ def test_undefined_acf_is_a_recorded_failure() -> None:
 
 def test_holdout_requires_the_frozen_selection_and_independent_seeds() -> None:
     meta = {"source": {"raw_sha256": "a" * 64}, "splits": {"holdout": snapshot()}}
-    selection = {"reference_sha256": "a" * 64, "selected": "base", "seeds": ["10000"]}
+    selection = {
+        "reference_sha256": "a" * 64,
+        "selected": "base",
+        "selected_config_sha256": "c" * 64,
+        "seeds": ["10000"],
+    }
     holdout = {"candidate": "base", "seeds": ["10050"], "simulations": {"10050": snapshot()}}
     assert evaluate_holdout(meta, holdout, selection)["loss"] == pytest.approx(0)
     with pytest.raises(ValueError, match="selected calibration candidate"):
@@ -73,3 +79,38 @@ def test_holdout_requires_the_frozen_selection_and_independent_seeds() -> None:
         evaluate_holdout(meta, {**holdout, "seeds": ["10000"]}, selection)
     with pytest.raises(ValueError, match="same source snapshot"):
         evaluate_holdout(meta, holdout, {**selection, "reference_sha256": "b" * 64})
+
+
+def test_rejects_noncanonical_seed_aliases() -> None:
+    meta = {
+        "splits": {"calibration": snapshot(), "holdout": snapshot()},
+        "source": {"raw_sha256": "a" * 64},
+    }
+    summary = snapshot()
+    with pytest.raises(ValueError, match="unsigned decimal seed strings"):
+        rank_candidates(meta, {"seeds": ["10000", "010000"], "candidates": {"base": {}}})
+    selection = rank_candidates(
+        meta, {"seeds": ["10000"], "candidates": {"base": {"10000": summary}}}
+    )
+    with pytest.raises(ValueError, match="unsigned decimal seed strings"):
+        evaluate_holdout(
+            meta,
+            {"candidate": "base", "seeds": ["010000"], "simulations": {"010000": summary}},
+            selection,
+        )
+    with pytest.raises(ValueError, match="one summary per"):
+        evaluate(summary, {"010000": summary}, ["10000"])
+
+
+def test_requires_same_config_across_fit_seeds_and_during_holdout() -> None:
+    good, changed = snapshot(), {**snapshot(), "config_sha256": "d" * 64}
+    meta = {"source": {"raw_sha256": "a" * 64}, "splits": {"calibration": good, "holdout": good}}
+    with pytest.raises(ValueError, match="different base configurations"):
+        evaluate(good, {"10000": good, "10001": changed}, ["10000", "10001"])
+    selection = rank_candidates(meta, {"seeds": ["10000"], "candidates": {"base": {"10000": good}}})
+    with pytest.raises(ValueError, match="SHA256 differs"):
+        evaluate_holdout(
+            meta,
+            {"candidate": "base", "seeds": ["10050"], "simulations": {"10050": changed}},
+            selection,
+        )

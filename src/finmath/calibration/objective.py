@@ -4,8 +4,11 @@
 import argparse
 import json
 import math
+import re
 from pathlib import Path
 from statistics import fmean
+
+from finmath.data_release import parse_seeds
 
 ACF_LAGS = (1, 5, 20)
 METRICS = ("annualized_volatility", "p05", "p95", *(f"abs_return_acf_{lag}" for lag in ACF_LAGS))
@@ -33,8 +36,7 @@ def _moments(snapshot: dict, count: int) -> dict[str, float]:
 
 
 def evaluate(target: dict, simulations: dict[str, dict], seeds: list[str]) -> dict:
-    if not seeds or len(seeds) != len(set(seeds)):
-        raise ValueError("expected unique reference-market seeds")
+    parse_seeds(seeds, source="simulation seeds")
     if not isinstance(simulations, dict) or simulations.keys() != set(seeds):
         raise ValueError("candidate must contain one summary per reference-market seed")
     count = target["return_count"]
@@ -50,7 +52,17 @@ def evaluate(target: dict, simulations: dict[str, dict], seeds: list[str]) -> di
         or annual_scale <= 0
     ):
         raise ValueError("target volatility scales must be positive and finite")
-    each = [_moments(simulations[seed], count) for seed in seeds]
+    each = []
+    hashes = set()
+    for seed in seeds:
+        summary = simulations[seed]
+        digest = summary.get("config_sha256")
+        if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+            raise ValueError(f"seed {seed}: expected the base configuration SHA256")
+        hashes.add(digest)
+        each.append(_moments(summary, count))
+    if len(hashes) != 1:
+        raise ValueError("candidate used different base configurations across seeds")
     simulated = {metric: fmean(row[metric] for row in each) for metric in METRICS}
     delta = {metric: simulated[metric] - actual[metric] for metric in METRICS}
     blocks = {
@@ -59,6 +71,7 @@ def evaluate(target: dict, simulations: dict[str, dict], seeds: list[str]) -> di
         "persistence": fmean(delta[f"abs_return_acf_{lag}"] ** 2 for lag in ACF_LAGS),
     }
     return {
+        "config_sha256": hashes.pop(),
         "loss": fmean(blocks.values()),
         "loss_blocks": blocks,
         "target": actual,
@@ -72,6 +85,7 @@ def evaluate(target: dict, simulations: dict[str, dict], seeds: list[str]) -> di
 def rank_candidates(meta: dict, input_grid: dict) -> dict:
     # The holdout is only evaluated in a separate command after selecting a candidate.
     target = meta["splits"]["calibration"]
+    parse_seeds(input_grid["seeds"], source="calibration seeds")
     if not input_grid["candidates"]:
         raise ValueError("expected at least one candidate")
     scores, failures = [], {}
@@ -85,6 +99,7 @@ def rank_candidates(meta: dict, input_grid: dict) -> dict:
     scores.sort(key=lambda score: (score["loss"], score["candidate"]))
     return {
         "selected": scores[0]["candidate"] if scores else None,
+        "selected_config_sha256": scores[0]["config_sha256"] if scores else None,
         "reference_sha256": meta["source"]["raw_sha256"],
         "seeds": input_grid["seeds"],
         "scores": scores,
@@ -99,13 +114,18 @@ def evaluate_holdout(meta: dict, results: dict, selection: dict) -> dict:
     candidate = results["candidate"]
     if not candidate or candidate != selection["selected"]:
         raise ValueError("holdout requires the selected calibration candidate")
-    if set(results["seeds"]) & set(selection["seeds"]):
+    fit_seeds = parse_seeds(selection["seeds"], source="calibration seeds")
+    holdout_seeds = parse_seeds(results["seeds"], source="holdout seeds")
+    if set(holdout_seeds).intersection(fit_seeds):
         raise ValueError("holdout and calibration simulation seeds overlap")
+    score = evaluate(meta["splits"]["holdout"], results["simulations"], results["seeds"])
+    if score["config_sha256"] != selection["selected_config_sha256"]:
+        raise ValueError("holdout base configuration SHA256 differs from the selected candidate")
     return {
         "candidate": candidate,
         "reference_sha256": raw_sha256,
         "seeds": results["seeds"],
-        **evaluate(meta["splits"]["holdout"], results["simulations"], results["seeds"]),
+        **score,
     }
 
 
