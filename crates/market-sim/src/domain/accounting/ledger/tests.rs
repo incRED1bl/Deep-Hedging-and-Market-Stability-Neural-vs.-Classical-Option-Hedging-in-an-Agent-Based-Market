@@ -206,6 +206,114 @@ fn funding_is_signed_and_rolls_back_on_a_later_overflow() {
 }
 
 #[test]
+fn replay_rejects_duplicate_agent_funding_across_intervening_postings() {
+    let mut ledger = ledger();
+    let opening = ledger.portfolios().to_vec();
+    let rate = FundingRate::new(0.02).unwrap();
+    ledger
+        .accrue_funding(TODAY, &opening, rate, TradingDays::new(2))
+        .unwrap();
+    ledger
+        .book_fill(TODAY, fill(BUYER, SELLER), commission())
+        .unwrap();
+    let mut journal = ledger.postings().to_vec();
+    journal.push(Posting {
+        step: TODAY,
+        kind: PostingKind::Funding {
+            agent: BUYER,
+            funding_account: FUNDING,
+            interest: money(2),
+        },
+    });
+    assert_eq!(
+        Ledger::replay(ledger.instrument, FEES, FUNDING, &journal).unwrap_err(),
+        AccountingError::InvalidPosting
+    );
+}
+
+#[test]
+fn zero_funding_days_are_idempotent_after_replay() {
+    for rate in [0.0, 0.001] {
+        let mut ledger = ledger();
+        let opening = ledger.portfolios().to_vec();
+        let days = TradingDays::new(2);
+        let zero_interest_rate = FundingRate::new(rate).unwrap();
+        ledger
+            .accrue_funding(TODAY, &opening, zero_interest_rate, days)
+            .unwrap();
+        let journal = ledger.postings().to_vec();
+        assert_eq!(
+            &journal[opening.len()..],
+            &[Posting {
+                step: TODAY,
+                kind: PostingKind::Funding {
+                    agent: BUYER,
+                    funding_account: FUNDING,
+                    interest: money(0),
+                },
+            }]
+        );
+        assert_eq!(ledger.portfolios(), opening);
+
+        let mut replayed = Ledger::replay(ledger.instrument, FEES, FUNDING, &journal).unwrap();
+        let nonzero_interest_rate = FundingRate::new(0.02).unwrap();
+        for ledger in [&mut ledger, &mut replayed] {
+            ledger
+                .accrue_funding(TODAY, &opening, nonzero_interest_rate, days)
+                .unwrap();
+            assert_eq!(ledger.portfolios(), opening);
+            assert_eq!(ledger.postings(), journal);
+        }
+    }
+}
+
+#[test]
+fn funding_without_participants_leaves_the_journal_unchanged() {
+    let opening = [portfolio(0, 100), portfolio(0, -100)];
+    let mut ledger = Ledger::new(instrument(1_000_000), &opening, BUYER, SELLER).unwrap();
+    let journal = ledger.postings().to_vec();
+    ledger
+        .accrue_funding(
+            TODAY,
+            &opening,
+            FundingRate::new(0.02).unwrap(),
+            TradingDays::new(2),
+        )
+        .unwrap();
+    assert_eq!(ledger.portfolios(), opening);
+    assert_eq!(ledger.postings(), journal);
+}
+
+#[test]
+fn failed_transaction_restores_the_last_funding_step() {
+    let mut ledger = ledger();
+    let opening = ledger.portfolios().to_vec();
+    let rate = FundingRate::new(0.02).unwrap();
+    let days = TradingDays::new(2);
+    ledger.accrue_funding(TODAY, &opening, rate, days).unwrap();
+    let funded = ledger.portfolios().to_vec();
+    let journal = ledger.postings().to_vec();
+
+    let failure: Result<(), _> = Err(AccountingError::InvalidPosting);
+    assert_eq!(
+        ledger.transact(|ledger| {
+            ledger.accrue_funding(TOMORROW, &funded, rate, days)?;
+            failure
+        }),
+        failure
+    );
+    assert_eq!(ledger.portfolios(), funded);
+    assert_eq!(ledger.postings(), journal);
+    ledger.accrue_funding(TODAY, &opening, rate, days).unwrap();
+    assert_eq!(ledger.postings(), journal);
+    ledger
+        .accrue_funding(TOMORROW, &funded, rate, days)
+        .unwrap();
+    assert_eq!(ledger.portfolio(BUYER), Some(&portfolio(2, 102)));
+    assert_eq!(ledger.postings().len(), journal.len() + 2);
+}
+
+#[test]
 fn a_call_settles_once_and_cannot_be_reissued() {
     let mut ledger = ledger();
     let call = make_call(0, money(1));

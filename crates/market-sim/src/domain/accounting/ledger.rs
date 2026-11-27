@@ -124,6 +124,7 @@ pub struct Ledger {
     issued: BTreeSet<ContractId>,
     active: BTreeMap<ContractId, OptionContract>,
     managed: BTreeMap<AgentId, ContractId>,
+    last_funding_step: Option<MarketStep>,
     postings: Vec<Posting>,
 }
 
@@ -171,6 +172,7 @@ impl Ledger {
             issued: BTreeSet::new(),
             active: BTreeMap::new(),
             managed: BTreeMap::new(),
+            last_funding_step: None,
             postings,
         })
     }
@@ -193,11 +195,21 @@ impl Ledger {
             opening.push(portfolio);
         }
         let mut ledger = Self::new(instrument, &opening, fee_account, funding_account)?;
+        let mut funded_participants = BTreeSet::new();
         for posting in &postings[opening.len()..] {
             if let PostingKind::Fill { fill, notional, .. } = posting.kind
                 && ledger.instrument.notional(fill.price(), fill.lots())? != notional
             {
                 return Err(AccountingError::InvalidPosting);
+            }
+            if let PostingKind::Funding { agent, .. } = posting.kind {
+                if ledger.last_funding_step != Some(posting.step) {
+                    funded_participants.clear();
+                    ledger.last_funding_step = Some(posting.step);
+                }
+                if !funded_participants.insert(agent) {
+                    return Err(AccountingError::InvalidPosting);
+                }
             }
             ledger.post(*posting)?;
         }
@@ -245,6 +257,7 @@ impl Ledger {
     }
 
     /// Apply one elapsed interval of interest to the cash captured before that day's fills.
+    /// Retrying an already funded step is a no-op while that step is current.
     pub fn accrue_funding(
         &mut self,
         step: MarketStep,
@@ -260,25 +273,42 @@ impl Ledger {
         {
             return Err(AccountingError::InvalidFundingSnapshot);
         }
+        self.ensure_posting_step(step)?;
+        if self.last_funding_step == Some(step) {
+            return Ok(());
+        }
 
         self.transact(|ledger| {
+            let start = ledger.postings.len();
+            let mut zero_posting = None;
             for (index, portfolio) in opening.iter().enumerate() {
                 let agent = AgentId::new(index as u32);
                 if agent == ledger.fee_account || agent == ledger.funding_account {
                     continue;
                 }
                 let interest = rate.daily_interest(portfolio.cash, trading_days_per_year)?;
-                if interest.amount().get() != 0 {
-                    ledger.post(Posting {
-                        step,
-                        kind: PostingKind::Funding {
-                            agent,
-                            funding_account: ledger.funding_account,
-                            interest,
-                        },
-                    })?;
+                let posting = Posting {
+                    step,
+                    kind: PostingKind::Funding {
+                        agent,
+                        funding_account: ledger.funding_account,
+                        interest,
+                    },
+                };
+                if interest.amount().get() == 0 {
+                    zero_posting.get_or_insert(posting);
+                } else {
+                    ledger.post(posting)?;
                 }
             }
+            if ledger.postings.len() == start {
+                let Some(posting) = zero_posting else {
+                    return Ok(());
+                };
+                // A zero-interest entry lets replay recover this completed funding day.
+                ledger.post(posting)?;
+            }
+            ledger.last_funding_step = Some(step);
             Ok(())
         })
     }
@@ -328,7 +358,7 @@ impl Ledger {
     }
 
     /// Roll back a group of operations if the caller returns an error.
-    /// Only live balances and active calls are copied. The journal remains append-only on success.
+    /// The journal remains append-only on success.
     pub fn transact<T, E>(
         &mut self,
         operation: impl FnOnce(&mut Self) -> Result<T, E>,
@@ -336,12 +366,14 @@ impl Ledger {
         let portfolios = self.portfolios.clone();
         let active = self.active.clone();
         let managed = self.managed.clone();
+        let last_funding_step = self.last_funding_step;
         let length = self.postings.len();
         let result = operation(self);
         if result.is_err() {
             self.portfolios = portfolios;
             self.active = active;
             self.managed = managed;
+            self.last_funding_step = last_funding_step;
             for posting in self.postings.drain(length..) {
                 if let PostingKind::OptionIssue { contract, .. } = posting.kind {
                     self.issued.remove(&contract.id());
@@ -400,14 +432,15 @@ impl Ledger {
         self.money(change)
     }
 
-    fn post(&mut self, posting: Posting) -> Result<(), AccountingError> {
-        if self
-            .postings
-            .last()
-            .is_some_and(|last| posting.step < last.step)
-        {
-            return Err(AccountingError::BackdatedPosting(posting.step));
+    fn ensure_posting_step(&self, step: MarketStep) -> Result<(), AccountingError> {
+        if self.postings.last().is_some_and(|last| step < last.step) {
+            return Err(AccountingError::BackdatedPosting(step));
         }
+        Ok(())
+    }
+
+    fn post(&mut self, posting: Posting) -> Result<(), AccountingError> {
+        self.ensure_posting_step(posting.step)?;
         match posting.kind {
             PostingKind::Opening { .. } => return Err(AccountingError::InvalidOpening),
             PostingKind::Fill {
