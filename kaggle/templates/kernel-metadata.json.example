@@ -1,0 +1,16 @@
+{
+  "id": "REPLACE_WITH_TIM_KAGGLE_USERNAME/REPLACE_WITH_KERNEL_SLUG",
+  "title": "REPLACE_WITH_KERNEL_TITLE_MATCHING_SLUG",
+  "code_file": "train.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": false,
+  "dataset_sources": [
+    "REPLACE_WITH_DATASET_OWNER/REPLACE_WITH_FROZEN_TRAIN_VALIDATION_SLUG"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": []
+}

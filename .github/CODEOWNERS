@@ -1,0 +1,58 @@
+# Reviewers with verified repository write/admin access.
+# Any one listed owner can approve; the PR author cannot approve their own PR.
+# Domain reviewers are recorded in issues and CONTRIBUTING.md.
+* @incRED1bl @Perf0rator4
+
+# Dania: market, agents, and accounting; reviewed by Fedya or Tim.
+/src/finmath/market/ @Perf0rator4 @incRED1bl
+/src/finmath/agents/ @Perf0rator4 @incRED1bl
+/src/finmath/accounting/ @Perf0rator4 @incRED1bl
+/tests/market/ @Perf0rator4 @incRED1bl
+/tests/agents/ @Perf0rator4 @incRED1bl
+/tests/accounting/ @Perf0rator4 @incRED1bl
+/crates/market-sim/ @Perf0rator4 @incRED1bl
+/docs/architecture/ @Perf0rator4 @incRED1bl
+
+# Fedya: classical strategies; reviewed by Tim or Dania.
+/src/finmath/strategies/classical/ @incRED1bl @bani2016up
+/tests/strategies/classical/ @incRED1bl @bani2016up
+
+# Fedya: metrics and statistics; reviewed by Lev or Tim.
+/src/finmath/metrics/ @Levonidor @incRED1bl
+/src/finmath/statistics/ @Levonidor @incRED1bl
+/tests/metrics/ @Levonidor @incRED1bl
+/tests/statistics/ @Levonidor @incRED1bl
+
+# Tim: neural strategies and training; reviewed by Fedya or Lev.
+/src/finmath/strategies/neural/ @Perf0rator4 @Levonidor
+/src/finmath/training/ @Perf0rator4 @Levonidor
+/tests/strategies/neural/ @Perf0rator4 @Levonidor
+/tests/training/ @Perf0rator4 @Levonidor
+
+# Lev: data and calibration; reviewed by Fedya or Tim.
+/src/finmath/data/ @Perf0rator4 @incRED1bl
+/src/finmath/calibration/ @Perf0rator4 @incRED1bl
+/tests/data/ @Perf0rator4 @incRED1bl
+/tests/calibration/ @Perf0rator4 @incRED1bl
+
+# Lev: experiments; reviewed by Dania or Fedya.
+/src/finmath/experiments/ @bani2016up @Perf0rator4
+/tests/experiments/ @bani2016up @Perf0rator4
+
+# Shared Kaggle workflow and data handoff contract.
+/kaggle/ @incRED1bl @Levonidor
+/docs/data-and-kaggle.md @incRED1bl @Levonidor
+/src/finmath/data_release.py @incRED1bl @Levonidor
+/tests/test_data_release.py @incRED1bl @Levonidor
+
+# Infrastructure and CODEOWNERS: Tim or Dania, without self-review.
+/.github/ @incRED1bl @bani2016up
+/Cargo.toml @incRED1bl @bani2016up
+/Cargo.lock @incRED1bl @bani2016up
+/.gitignore @incRED1bl @bani2016up
+/pyproject.toml @incRED1bl @bani2016up
+/uv.lock @incRED1bl @bani2016up
+/.python-version @incRED1bl @bani2016up
+/CONTRIBUTING.md @incRED1bl @bani2016up
+/docs/repository-settings.md @incRED1bl @bani2016up
+/docs/main-ruleset.json @incRED1bl @bani2016up
