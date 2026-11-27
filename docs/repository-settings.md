@@ -25,14 +25,14 @@
 могут управлять repository Actions secrets и variables. Environment secrets
 управляет владелец. Владелец также может редактировать сам ruleset.
 
-## PR #22 и CODEOWNERS
+## CODEOWNERS
 
-[PR #22](https://github.com/incRED1bl/Deep-Hedging-and-Market-Stability-Neural-vs.-Classical-Option-Hedging-in-an-Agent-Based-Market/pull/22)
-можно слить после независимого approval на актуальной версии, зелёных
-`lint` и `test`, актуальной базы и разрешения обсуждений. GitHub берёт
-CODEOWNERS из целевой ветки. В первом PR файл только добавляется, поэтому
-review запрашивается вручную. Далее один из владельцев каждой затронутой
-группы путей должен одобрить изменения. См. [CONTRIBUTING.md](../CONTRIBUTING.md#ответственные-и-review).
+GitHub берёт CODEOWNERS из целевой ветки PR. Общее правило в
+[`.github/CODEOWNERS`](../.github/CODEOWNERS) даёт Тиму, Дане, Феде и Льву
+одинаковое право одобрять изменения во всех файлах. Для слияния в `main`
+достаточно одного Approve от участника, который не является автором PR и не
+сделал последний reviewable push. Предметных reviewers выбираем по issue и
+[CONTRIBUTING.md](../CONTRIBUTING.md#ответственные-и-review).
 
 ## После подключения Rust CI
 
