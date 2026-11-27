@@ -120,10 +120,28 @@ Git, metadata, notebook или логи. В обычном CI Kaggle auth и upl
 
 ### Лев: создать private training dataset
 
-Скопировать `kaggle/templates/dataset-metadata.json.example` в подготовленный
-пакет под именем `dataset-metadata.json`, заполнить metadata и manifest,
-проверить содержимое папки. `DATASET_OWNER` — Kaggle username Льва.
-**Лев** выполняет:
+Упаковщик собирает точный набор payload-файлов, проверяет принадлежность seed
+к train/validation по протоколу и записывает размеры и SHA256 в manifest.
+На вход подаётся отдельная папка с синтетическими payload-файлами. В режиме
+`exogenous_pretrain` упаковщик и проверка скачанного релиза сверяют порядок
+`uint64` seeds в NPZ с каждым JSON-списком, формы и численные типы массивов,
+а также допустимость цен, страйков и волатильности. Генератор проверяет
+причинность признаков и соответствие параметрам #9.
+
+```bash
+uv run --group release python -m finmath.kaggle_package \
+  "$FINMATH_SYNTHETIC_PAYLOAD" "$FINMATH_RELEASE_DIR" \
+  --dataset "$FINMATH_DATASET" --title "$FINMATH_TITLE" \
+  --mode "$FINMATH_GENERATION_MODE" --created-at "$FINMATH_RELEASE_CREATED_AT" \
+  --commit "$FINMATH_GENERATOR_COMMIT" --protocol research/protocol-v1.json \
+  --pin-output "$FINMATH_LOCAL_PIN"
+```
+
+Путь `FINMATH_LOCAL_PIN` указывает на файл вне каталога загрузки. Команда
+заменяет pin только после успешной сборки. После
+публикации добавьте в pin фактические `dataset_version` и `local_path` по
+шаблону `kaggle/templates/artifact-pin.json.example`. Перед загрузкой сверьте
+численные входы и применимость лицензии ко всем payload-файлам.
 
 ```bash
 FINMATH_RELEASE_DIR="data/kaggle-upload/REPLACE_WITH_RELEASE_ID"
