@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "seed": 1701,
+  "instrument": {
+    "quote_currency": "USD",
+    "cash_decimal_places": 8,
+    "tick_value_per_share": 1000000,
+    "lot_size_micros": 10000,
+    "initial_close_ticks": 10000
+  },
+  "initial_annualized_volatility": 0.20,
+  "population": {
+    "fundamentalists": 60,
+    "trend_traders": 50,
+    "noise_traders": 50,
+    "hedgers": 40
+  },
+  "burn_in_days": 500,
+  "observed_days": 2000,
+  "trading_days_per_year": 252,
+  "one_way_commission": 0.001,
+  "annual_funding_rate": 0.0,
+  "limits": {
+    "max_order_lots": 100,
+    "max_abs_position_lots": 50000
+  },
+  "call": {
+    "size_shares": 1,
+    "maturity_days": 20
+  }
+}
