@@ -13,11 +13,15 @@ The ledger owns each agent's signed net lots and cash in the instrument's quote 
 
 The caller captures opening cash before fills. Interest is simple annual rate divided by trading days per year, applied to those opening balances. An annual rate of 0.252 with 252 trading days yields a daily rate of 0.001. Premiums and payoffs booked at that day's close first affect the next day's opening cash. Fees and interest each round to the nearest cash unit with ties away from zero. Fill notional rounds once before the fee is applied. The quote account can carry a debit balance. Cash and lot constraints on orders belong to order admission.
 
+Retrying an already funded step leaves balances and the journal unchanged while that step is current. When all participants earn zero interest after rounding, the ledger records one zero-interest funding posting so replay recognizes the completed step.
+
 Rotation issues each ordered buyer and seller pair at its phase, calculated as the pair index modulo the configured tenor. The default tenor is 20 trading days, so 40 hedgers receive two initial calls per close across steps 0 through 19. Step 20 settles the phase-zero contracts, then issues their replacements. Every new call has a unique ID. The application settles expiries at the last close and skips new issuance there.
 
 ## Journal and terminal value
 
 Record the instrument, reserve account IDs, opening close, terminal close and terminal per-share marks with the journal. The ledger's opening postings provide the portfolio baseline. The fill, fee, funding, premium and settlement postings contain the booked cash amounts and counterparties. Replay reconstructs portfolios and active contracts using those postings.
+
+Replay rejects a second funding posting for the same participant and market step, even when other operations appear between the two postings. For older journals, replay can recover completed funding steps only where a funding posting exists.
 
 A run's total P&L is the change in marked equity. Marked equity is cash plus signed stock value at the close plus the signed value of each active call. The opening baseline uses the initial cash and stock before the first call issuance. Calls that expire on the final close settle at that close and appear in cash. Calls with later expiries remain live. Supply one quote-currency per-share market or model mark for each live call. Value each call at that mark times its contract size, positive for the buyer and negative for the seller. Report completed-contract hedging errors using settlements through the final close. P&L uses signed 128-bit intermediate marks and converts the net result to the cash unit. Extreme inputs that exceed signed 128-bit arithmetic before lot scaling or during accumulation return an overflow error.
 

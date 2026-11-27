@@ -5,7 +5,7 @@ use market_sim::domain::{
         OptionContract, Portfolio, PremiumPerShare,
         ledger::{AccountingError, CALL_TENOR, Ledger, PostingKind, Rotation},
     },
-    market::{InstrumentSpec, Order, Side, TickValuePerShare, auction::clear_auction},
+    market::{Fill, InstrumentSpec, Order, Side, TickValuePerShare, auction::clear_auction},
     units::{
         AgentId, CashUnits, ContractId, ContractSize, CurrencyId, DomainError, FundingRate,
         LotSize, Lots, MarketStep, Money, NetLots, OneWayCommissionRate, PriceTicks, TradingDays,
@@ -187,6 +187,60 @@ fn forty_hedgers_roll_two_contracts_each_day_and_keep_losses_and_positions() {
     }
     assert_eq!(ledger.active_calls().count(), 40);
     ledger.check_conservation().unwrap();
+}
+
+#[test]
+fn funding_retry_preserves_balances_and_postings_before_and_after_replay() {
+    let opening = [
+        portfolio(2, 10_000),
+        portfolio(-2, -5_000),
+        portfolio(0, 0),
+        portfolio(0, 0),
+        portfolio(0, 0),
+    ];
+    let spec = instrument();
+    let next_day = MarketStep::new(2);
+    let mut ledger = Ledger::new(spec, &opening, FEES, FUNDING).unwrap();
+    let rate = FundingRate::new(0.02).unwrap();
+    let days = TradingDays::new(2);
+    let fill = Fill::new(HEDGER, OPTION_BUYER, Lots::new(1).unwrap(), price(15)).unwrap();
+    let commission = OneWayCommissionRate::new(0.1).unwrap();
+    ledger.accrue_funding(TRADE, &opening, rate, days).unwrap();
+    let journal = ledger.postings().to_vec();
+    let funded = ledger.portfolios().to_vec();
+    assert_eq!(ledger.portfolio(HEDGER), Some(&portfolio(2, 10_100)));
+    assert_eq!(ledger.portfolio(OPTION_BUYER), Some(&portfolio(-2, -5_050)));
+    assert_eq!(ledger.portfolio(FUNDING), Some(&portfolio(0, -50)));
+    assert_eq!(journal.len(), opening.len() + 2);
+
+    let mut replayed = Ledger::replay(spec, FEES, FUNDING, &journal).unwrap();
+    for ledger in [&mut ledger, &mut replayed] {
+        ledger.accrue_funding(TRADE, &opening, rate, days).unwrap();
+        assert_eq!(ledger.portfolios(), funded);
+        assert_eq!(ledger.postings(), journal);
+
+        ledger
+            .accrue_funding(next_day, &funded, rate, days)
+            .unwrap();
+        assert_eq!(ledger.portfolio(HEDGER), Some(&portfolio(2, 10_201)));
+        assert_eq!(ledger.portfolio(OPTION_BUYER), Some(&portfolio(-2, -5_101)));
+        assert_eq!(ledger.portfolio(FUNDING), Some(&portfolio(0, -100)));
+        assert_eq!(ledger.postings().len(), journal.len() + 2);
+        assert_eq!(ledger.check_conservation(), Ok(()));
+
+        ledger
+            .book_fill(MarketStep::new(3), fill, commission)
+            .unwrap();
+        let after_fill = ledger.portfolios().to_vec();
+        assert_eq!(
+            ledger.accrue_funding(next_day, &funded, rate, days),
+            Err(AccountingError::BackdatedPosting(next_day))
+        );
+        assert_eq!(ledger.portfolios(), after_fill);
+        assert_eq!(ledger.postings().len(), journal.len() + 3);
+    }
+    let replayed = Ledger::replay(spec, FEES, FUNDING, ledger.postings()).unwrap();
+    assert_eq!(replayed.portfolios(), ledger.portfolios());
 }
 
 #[test]
