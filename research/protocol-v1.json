@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "protocol_version": "1.0-draft",
+  "status": "pending-team-review",
+  "date": "2026-11-27",
+  "population": {
+    "fundamentalists": 60,
+    "trend_traders": 50,
+    "noise_traders": 50,
+    "hedgers": 40
+  },
+  "burn_in_days": 500,
+  "observed_days": 2000,
+  "trading_days_per_year": 252,
+  "policies": [
+    "bs",
+    "leland",
+    "band",
+    "dl"
+  ],
+  "c0": 0.001,
+  "one_way_commissions": [
+    0,
+    0.0005,
+    0.001,
+    0.002,
+    0.004
+  ],
+  "cost_multipliers": [
+    0,
+    0.5,
+    1,
+    2,
+    4
+  ],
+  "market_replications": 50,
+  "expected_runs": 1000,
+  "call": {
+    "type": "european_call",
+    "hedger_side": "short",
+    "maturity_days": 20,
+    "issuance": "staggered_atm",
+    "buyer_hedges": false
+  },
+  "funding_rate": 0,
+  "dividend_yield": 0,
+  "observation_volatility": {
+    "estimator": "rolling_sample_sd_log_returns",
+    "lookback_days": 20,
+    "ddof": 1,
+    "initial_annualized_sigma": 0.2,
+    "include_no_trade_zeros": true
+  },
+  "primary_cost": "c0",
+  "primary_comparator": "bs",
+  "hypotheses": [
+    {
+      "id": "H1",
+      "endpoint": "annualized_realized_volatility",
+      "contrast": "dl-minus-bs-at-c0",
+      "alternative": "less",
+      "test": "paired-t"
+    },
+    {
+      "id": "H2",
+      "endpoint": "executed_shares_per_day",
+      "contrast": "dl-minus-bs-at-c0",
+      "alternative": "less",
+      "test": "paired-t"
+    },
+    {
+      "id": "H3",
+      "endpoint": "volatility_gap_slope_per_c0",
+      "contrast": "mean-within-seed-ols-slope",
+      "alternative": "less",
+      "test": "seed-slope-regression"
+    }
+  ],
+  "alpha": 0.05,
+  "multiple_testing": "holm-3-hypotheses",
+  "ci_level": 0.95,
+  "ci_coverage": "marginal",
+  "bootstrap": {
+    "unit": "whole-market-seed-block",
+    "resamples": 20000,
+    "seed": 71001
+  },
+  "seed_ranges_inclusive": {
+    "fixtures": [
+      1000,
+      1999
+    ],
+    "calibration": [
+      10000,
+      10099
+    ],
+    "train": [
+      20000,
+      29999
+    ],
+    "validation": [
+      30000,
+      30049
+    ],
+    "training_initialization": [
+      40000,
+      40002
+    ]
+  },
+  "final_test_seed_manifest": {
+    "sha256": "2957b03f05e5e11f412e1df524da70dcc7ac0cfd9b9b72fa12bb3bf1755ad7ff",
+    "count": 50,
+    "storage": "artifacts/issue-1/private/final-test-seeds.json",
+    "release_gate": "issue-17-freeze",
+    "seed_encoding": "uint64-decimal-string",
+    "used_for_runs": false
+  },
+  "dl_selection": {
+    "policy": "one-commission-conditional-mlp",
+    "risk": "entropic",
+    "risk_aversion": 50,
+    "cost_aggregation": "mean-of-five-per-cost-entropic-risks",
+    "widths": [
+      32,
+      64
+    ],
+    "hidden_layers": 2,
+    "activation": "tanh",
+    "learning_rates": [
+      0.001,
+      0.0003
+    ],
+    "max_epochs": 100,
+    "checkpoint_interval_epochs": 5,
+    "batch_episodes_per_cost": 256,
+    "training_seed": 40000,
+    "approval": "issue-9-team-review-required"
+  },
+  "band_width_candidates": [
+    0,
+    0.01,
+    0.025,
+    0.05,
+    0.1,
+    0.2
+  ],
+  "insolvency_rule": "retain-agent-and-liabilities; unlimited-credit-with-position-limits; no-recapitalization",
+  "teacher_approval": {
+    "topic": true,
+    "four_person_team": true,
+    "evidence": "user-confirmation-in-chat-2026-11-27"
+  },
+  "team_review_completed": false
+}

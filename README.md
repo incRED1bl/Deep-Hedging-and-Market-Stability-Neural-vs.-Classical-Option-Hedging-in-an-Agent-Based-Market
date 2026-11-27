@@ -39,3 +39,12 @@ backlog. GPU и Kaggle не нужны для обычного CI.
 В `main` изменения попадают через PR после review и успешного CI. Датасеты,
 веса и credentials в Git не хранятся. Исследовательский протокол фиксируется
 в задаче #1 до итоговых экспериментов.
+
+## Исследовательский протокол
+
+- [Протокол и три гипотезы](docs/protocol.md) — проект для командного review.
+- [Литературная основа](docs/research/literature.md).
+- [Обсуждение гипотез](docs/research/hypothesis-deliberation.md).
+- [Числовая спецификация](research/protocol-v1.json) — не конфигурация runner.
+
+Закрытый final-test manifest хранится вне Git; SHA256 закреплён в спецификации.
