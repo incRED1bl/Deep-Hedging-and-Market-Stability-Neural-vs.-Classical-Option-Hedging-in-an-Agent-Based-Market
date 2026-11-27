@@ -1,3 +1,5 @@
+pub mod auction;
+
 use super::hedging::TargetPosition;
 use super::units::{
     AgentId, ContractSize, DomainError, LotSize, Lots, Money, NetLots, PriceTicks, Shares,
