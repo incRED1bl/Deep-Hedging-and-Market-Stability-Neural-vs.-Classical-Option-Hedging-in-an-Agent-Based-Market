@@ -24,20 +24,24 @@ MAX_SEED = 2**64 - 1
 
 def read_seeds(path: Path) -> list[int]:
     """Read canonical decimal strings as exact integers in the Rust u64 range."""
-    values = json.loads(path.read_text(encoding="utf-8"))
+    return parse_seeds(json.loads(path.read_text(encoding="utf-8")), source=path.name)
+
+
+def parse_seeds(values: object, *, source: str) -> list[int]:
+    """Validate a JSON seed array before converting its canonical decimal strings."""
     if not isinstance(values, list) or not values:
-        raise ValueError(f"{path.name}: expected a nonempty array of seeds")
+        raise ValueError(f"{source}: expected a nonempty array of seeds")
 
     seeds = []
     for value in values:
         if not isinstance(value, str) or re.fullmatch(r"0|[1-9][0-9]{0,19}", value) is None:
-            raise ValueError(f"{path.name}: expected unsigned decimal seed strings")
+            raise ValueError(f"{source}: expected unsigned decimal seed strings")
         seed = int(value)
         if seed > MAX_SEED:
-            raise ValueError(f"{path.name}: seed exceeds the u64 range")
+            raise ValueError(f"{source}: seed exceeds the u64 range")
         seeds.append(seed)
     if len(seeds) != len(set(seeds)):
-        raise ValueError(f"{path.name}: duplicate seeds")
+        raise ValueError(f"{source}: duplicate seeds")
     return seeds
 
 
