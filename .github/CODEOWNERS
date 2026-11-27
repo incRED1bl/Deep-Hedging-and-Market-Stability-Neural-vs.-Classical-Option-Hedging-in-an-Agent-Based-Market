@@ -1,0 +1,13 @@
+# Reviewers with verified repository write/admin access.
+# Any one listed owner can approve; the PR author cannot approve their own PR.
+# Domain reviewers are recorded in issues and CONTRIBUTING.md.
+# Add Dania/Fedya after their full GitHub logins and write access are verified.
+* @incRED1bl @Levonidor
+
+# Keep infrastructure and the ownership policy under review as well.
+/.github/ @incRED1bl @Levonidor
+/pyproject.toml @incRED1bl @Levonidor
+/uv.lock @incRED1bl @Levonidor
+/.python-version @incRED1bl @Levonidor
+/CONTRIBUTING.md @incRED1bl @Levonidor
+/docs/repository-settings.md @incRED1bl @Levonidor
