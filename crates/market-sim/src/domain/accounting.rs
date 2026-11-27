@@ -1,3 +1,5 @@
+pub mod ledger;
+
 use super::units::{
     AgentId, ContractId, ContractSize, DomainError, MarketStep, Money, NetLots, PriceTicks,
     rounded_cash,
