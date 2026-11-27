@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "release_id": "REPLACE_WITH_RELEASE_ID",
+  "purpose": "train_validation",
+  "generation_mode": "REPLACE_WITH_exogenous_pretrain_OR_interactive_seeded",
+  "created_at_utc": "REPLACE_WITH_ISO8601_UTC_TIMESTAMP",
+  "generator_commit": "REPLACE_WITH_FULL_GIT_COMMIT",
+  "uv_lock_sha256": "REPLACE_WITH_SHA256_OF_UV_LOCK",
+  "calibration_file": "calibration.json",
+  "simulation_config_file": "simulation-config.json",
+  "splits": {
+    "train": {"seeds_file": "train-seeds.json", "episode_count": null},
+    "validation": {"seeds_file": "validation-seeds.json", "episode_count": null}
+  },
+  "raw_market_data_included": false,
+  "final_test_included": false,
+  "files": [
+    {
+      "path": "REPLACE_WITH_EACH_PAYLOAD_FILENAME",
+      "size_bytes": null,
+      "sha256": "REPLACE_WITH_SHA256_OF_THIS_FILE"
+    }
+  ]
+}

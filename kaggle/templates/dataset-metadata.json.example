@@ -1,0 +1,6 @@
+{
+  "title": "REPLACE_WITH_TRAIN_VALIDATION_RELEASE_TITLE",
+  "id": "REPLACE_WITH_DATASET_OWNER/REPLACE_WITH_DATASET_SLUG",
+  "description": "Private train/validation release of team-generated synthetic episodes and simulation inputs. No final-test seeds or raw market-price redistribution. Replace this description with the release ID, provenance and applicable terms before uploading. See docs/data-and-kaggle.md.",
+  "licenses": [{"name": "copyright-authors"}]
+}
