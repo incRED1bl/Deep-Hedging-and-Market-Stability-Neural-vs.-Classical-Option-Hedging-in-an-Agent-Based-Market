@@ -6,7 +6,7 @@ AI assistance: ChatGPT; checked with analytic limits and shared target fixtures.
 """
 
 from dataclasses import dataclass
-from math import exp, fsum, isfinite, log, pi, sqrt
+from math import expm1, fsum, isfinite, log1p, pi, sqrt
 
 from finmath.finance import european_call, funding_to_continuous_rate
 from finmath.finance.accounting import RATE_SCALE, _rate_units
@@ -125,11 +125,10 @@ def select_band_width(
         if not all(isfinite(pnl) for pnl in pnls):
             raise ValueError("finite normalized net P&L required")
         worst = min(pnls)
-        # Shift before exponentiation: the exponents are nonpositive, even for large losses.
-        loss = (
-            -worst
-            + log(fsum(exp(-risk_aversion * (z - worst)) for z in pnls) / len(pnls)) / risk_aversion
-        )
+        # Shift before exponentiation so arguments stay nonpositive; expm1/log1p preserve
+        # small-lambda accuracy where exp(-lambda*(z - worst)) would otherwise round to 1.
+        mean_expm1 = fsum(expm1(-risk_aversion * (z - worst)) for z in pnls) / len(pnls)
+        loss = -worst + log1p(mean_expm1) / risk_aversion
         if not isfinite(loss):
             raise ValueError("validation risk exceeds float range")
         losses[width] = loss

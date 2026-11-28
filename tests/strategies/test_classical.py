@@ -107,6 +107,14 @@ def test_selection_uses_entropic_risk_not_mean_pnl_and_is_stable():
     assert select_band_width(tied, split="validation") == 0
 
 
+def test_selection_preserves_mean_limit_for_small_risk_aversion():
+    pnls = {width: [-1.0, -1.0] for width in BAND_WIDTHS}
+    pnls[0.0] = [0.0, 0.1]
+    pnls[0.01] = [0.01, 0.01]
+    assert select_band_width(pnls, split="validation", risk_aversion=1e-20) == 0.0
+    assert select_band_width(pnls, split="validation", risk_aversion=1e-100) == 0.0
+
+
 def test_configuration_loads_and_matches_predefined_selection():
     config = json.loads((ROOT / "configs/classical-strategies.json").read_text())
     assert config["status"] == "reference-defaults-not-validation-selected"
