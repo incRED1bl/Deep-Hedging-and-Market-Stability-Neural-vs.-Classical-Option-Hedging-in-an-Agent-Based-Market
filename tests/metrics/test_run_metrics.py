@@ -283,3 +283,36 @@ def test_validation_rejects_missing_or_duplicate_steps_and_bad_inputs() -> None:
             burn_in_days=0,
             observed_days=2,
         )
+
+
+@pytest.mark.parametrize("minima", [(None, None), (-10.0, None), (-10.0, 2.0)])
+def test_equity_diagnostics_require_daily_minimum_coverage(minima):
+    daily = [
+        DailyMarketRecord(
+            step=i,
+            close_price=100,
+            bilateral_executed_shares=0,
+            hedger_executed_shares=0,
+            hedger_commission_paid=0,
+            hedger_total_equity=10,
+            hedger_min_equity=None if i == 0 else minima[i - 1],
+        )
+        for i in range(3)
+    ]
+    row = summarize_run(
+        policy="bs",
+        cost_bps=10,
+        seed=1000,
+        daily_records=daily,
+        burn_in_days=0,
+        observed_days=2,
+        hedger_count=2,
+    )
+    assert row.equity_observed_days == sum(m is not None for m in minima)
+    if None in minima:
+        assert row.negative_equity_days is None
+        assert row.min_hedger_equity is None
+    else:
+        assert row.negative_equity_days == 1
+        assert row.min_hedger_equity == -10
+    assert RunMetricsRow.from_dict(row.to_dict()) == row

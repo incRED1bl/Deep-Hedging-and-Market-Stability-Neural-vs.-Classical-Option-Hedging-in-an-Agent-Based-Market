@@ -226,7 +226,9 @@ def test_analyze_protocol_matrix_full_4x5x50_synthetic_and_rejects_incomplete() 
             )
 
     assert len(rows) == 1000
-    result = analyze_protocol_matrix(rows, bootstrap_resamples=1000, bootstrap_seed=71001)
+    result = analyze_protocol_matrix(
+        rows, expected_seeds=seeds, bootstrap_resamples=1000, bootstrap_seed=71001
+    )
 
     assert result.n_seeds == 50
     assert result.multiple_testing == "holm-3-hypotheses"
@@ -249,8 +251,54 @@ def test_analyze_protocol_matrix_full_4x5x50_synthetic_and_rejects_incomplete() 
 
     # Removing one cell must fail loudly (no silent complete-case filtering)
     with pytest.raises(ValueError, match="incomplete matrix"):
-        analyze_protocol_matrix(rows[:-1], bootstrap_resamples=100)
+        analyze_protocol_matrix(rows[:-1], expected_seeds=seeds, bootstrap_resamples=100)
 
     # Duplicate run key must fail loudly
     with pytest.raises(ValueError, match="duplicate"):
-        analyze_protocol_matrix([*rows, rows[0]], bootstrap_resamples=100)
+        analyze_protocol_matrix([*rows, rows[0]], expected_seeds=seeds, bootstrap_resamples=100)
+
+
+def test_decimal_constant_differences_do_not_create_significance():
+    result = paired_t_test([0.0] * 50, [0.007] * 50)
+    assert result.sd == 0
+    assert result.estimable is False
+    assert result.p_raw == 1
+    curves = [[0.1] * 5] * 25 + [[0.2] * 5] * 25
+    assert seed_ols_slopes(curves, [0, 0.5, 1, 2, 4]) == (0.0,) * 50
+    result = seed_slope_test(curves, [0, 0.5, 1, 2, 4])
+    assert result.estimate == 0
+    assert result.p_raw == 1
+
+
+@pytest.mark.parametrize("missing", ["seed", "band", "leland", "cell"])
+def test_final_matrix_requires_manifest_blocks_and_all_policies(missing):
+    seeds = list(range(1000, 1050))
+    rows = [
+        _make_row(policy=p, cost_bps=c, seed=s, vol=0.2, turnover=100)
+        for p in ("bs", "leland", "band", "dl")
+        for c in (0, 5, 10, 20, 40)
+        for s in seeds
+    ]
+    if missing == "seed":
+        rows = [r for r in rows if r.seed != seeds[0]]
+    elif missing == "cell":
+        rows.pop()
+    else:
+        rows = [r for r in rows if r.policy != missing]
+    with pytest.raises(ValueError, match="incomplete matrix"):
+        analyze_protocol_matrix(rows, expected_seeds=seeds, bootstrap_resamples=10)
+
+
+def test_fixture_mode_is_explicit_and_final_requires_manifest():
+    rows = [
+        _make_row(policy=p, cost_bps=c, seed=s, vol=0.2, turnover=100)
+        for p in ("bs", "dl")
+        for c in (0, 5, 10, 20, 40)
+        for s in (1000, 1001)
+    ]
+    with pytest.raises(ValueError, match="expected_seeds"):
+        analyze_protocol_matrix(rows)
+    with pytest.raises(ValueError, match="50"):
+        analyze_protocol_matrix(rows, expected_seeds=[1000, 1001])
+    result = analyze_protocol_matrix(rows, mode="fixture", bootstrap_resamples=10)
+    assert result.to_dict()["analysis_mode"] == "fixture"

@@ -47,8 +47,11 @@ def _check_finite_sequence(values: Sequence[float], name: str, *, min_len: int =
 
 def _mean_and_sample_sd(values: Sequence[float]) -> tuple[float, float]:
     n = len(values)
-    mean = fsum(values) / n
-    sum_sq = fsum((v - mean) ** 2 for v in values)
+    reference = values[0]
+    offsets = [v - reference for v in values]
+    mean_offset = fsum(offsets) / n
+    mean = reference + mean_offset
+    sum_sq = fsum((v - mean_offset) ** 2 for v in offsets)
     sd = sqrt(sum_sq / (n - 1))
     return mean, sd
 
@@ -236,6 +239,7 @@ class DescriptiveContrastRow:
 class ProtocolAnalysisResult:
     """Full confirmatory and descriptive statistical output for a protocol matrix."""
 
+    analysis_mode: str
     n_seeds: int
     seeds: tuple[int, ...]
     alpha: float
@@ -252,6 +256,7 @@ class ProtocolAnalysisResult:
     def to_dict(self) -> dict[str, Any]:
         return {
             "n_seeds": self.n_seeds,
+            "analysis_mode": self.analysis_mode,
             "seeds": [str(s) for s in self.seeds],
             "alpha": self.alpha,
             "ci_level": self.ci_level,
@@ -463,7 +468,7 @@ def seed_ols_slopes(
         ds = _check_finite_sequence(seed_diffs, "seed differences across costs", min_len=len(xs))
         if len(ds) != len(xs):
             raise ValueError("each seed must supply one difference per cost level")
-        sxy = fsum(cx * d for cx, d in zip(centered_x, ds, strict=True))
+        sxy = fsum(cx * (d - ds[0]) for cx, d in zip(centered_x, ds, strict=True))
         slopes.append(sxy / sxx)
     return tuple(slopes)
 
@@ -676,6 +681,8 @@ def _ci_covers_zero(ci: ConfidenceInterval | None) -> bool | None:
 def analyze_protocol_matrix(
     rows: Sequence[RunMetricsRow | Mapping[str, Any]],
     *,
+    mode: str = "final",
+    expected_seeds: Sequence[int] | None = None,
     c0_bps: int = DEFAULT_C0_BPS,
     cost_bps_grid: Sequence[int] = DEFAULT_COST_BPS_GRID,
     treatment: str = DEFAULT_TREATMENT,
@@ -690,6 +697,26 @@ def analyze_protocol_matrix(
 
     Rejects duplicate keys or incomplete seed blocks (no silent complete-case filtering).
     """
+    if mode not in {"final", "fixture"}:
+        raise ValueError("mode must be final or fixture")
+    if mode == "final":
+        if expected_seeds is None:
+            raise ValueError("final mode requires expected_seeds from the pinned manifest")
+        if (
+            c0_bps != 10
+            or tuple(cost_bps_grid) != DEFAULT_COST_BPS_GRID
+            or treatment != "dl"
+            or primary_comparator != "bs"
+            or tuple(comparators) != DEFAULT_COMPARATORS
+        ):
+            raise ValueError("final mode requires the fixed 4-policy/5-cost protocol")
+    if expected_seeds is not None:
+        if any(type(s) is not int or not 0 <= s < 2**64 for s in expected_seeds) or len(
+            set(expected_seeds)
+        ) != len(expected_seeds):
+            raise ValueError("expected_seeds must contain unique uint64 integers")
+        if mode == "final" and len(expected_seeds) != 50:
+            raise ValueError("final mode requires exactly 50 expected seeds")
     if not rows:
         raise ValueError("rows must be nonempty")
     if type(c0_bps) is not int or c0_bps <= 0:
@@ -713,6 +740,19 @@ def analyze_protocol_matrix(
             raise ValueError(f"duplicate run row for key {key}")
         index[key] = row
         all_seeds.add(row.seed)
+
+    if expected_seeds is not None:
+        expected_keys = {
+            (policy, cost, seed)
+            for policy in {treatment, primary_comparator, *comparators}
+            for cost in cost_grid
+            for seed in expected_seeds
+        }
+        missing, extra = expected_keys - index.keys(), index.keys() - expected_keys
+        if missing or extra:
+            raise ValueError(
+                f"incomplete matrix: {len(missing)} missing, {len(extra)} unexpected keys"
+            )
 
     seeds = tuple(sorted(all_seeds))
     n_seeds = len(seeds)
@@ -881,6 +921,7 @@ def analyze_protocol_matrix(
     )
 
     return ProtocolAnalysisResult(
+        analysis_mode=mode,
         n_seeds=n_seeds,
         seeds=seeds,
         alpha=alpha,

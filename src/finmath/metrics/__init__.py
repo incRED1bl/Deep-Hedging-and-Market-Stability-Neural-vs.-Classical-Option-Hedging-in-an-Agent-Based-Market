@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from math import ceil, fsum, isfinite, log, sqrt
 from typing import Any
 
-METRICS_SCHEMA_VERSION = 1
+METRICS_SCHEMA_VERSION = 2
 ALLOWED_POLICIES = frozenset({"bs", "leland", "band", "dl"})
 
 
@@ -151,10 +151,11 @@ class RunMetricsRow:
     no_trade_day_share: float
     unfilled_hedge_demand_share: float | None
     limit_hit_count: int
-    negative_equity_days: int
+    negative_equity_days: int | None
     min_hedger_equity: float | None
     mean_open_calls_shares: float
     zero_booked_fee_share: float | None
+    equity_observed_days: int = 0
     schema_version: int = METRICS_SCHEMA_VERSION
 
     def to_dict(self) -> dict[str, Any]:
@@ -186,6 +187,7 @@ class RunMetricsRow:
             "unfilled_hedge_demand_share": self.unfilled_hedge_demand_share,
             "limit_hit_count": self.limit_hit_count,
             "negative_equity_days": self.negative_equity_days,
+            "equity_observed_days": self.equity_observed_days,
             "min_hedger_equity": self.min_hedger_equity,
             "mean_open_calls_shares": self.mean_open_calls_shares,
             "zero_booked_fee_share": self.zero_booked_fee_share,
@@ -194,6 +196,8 @@ class RunMetricsRow:
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> RunMetricsRow:
         """Deserialize from a flat mapping produced by to_dict()."""
+        if payload.get("schema_version") != METRICS_SCHEMA_VERSION:
+            raise ValueError("metrics schema version 2 required; regenerate legacy summaries")
         raw_seed = payload["seed"]
         if isinstance(raw_seed, str):
             seed = int(raw_seed, 10)
@@ -265,8 +269,13 @@ class RunMetricsRow:
                 )
             ),
             limit_hit_count=_check_int(payload["limit_hit_count"], "limit_hit_count", minimum=0),
-            negative_equity_days=_check_int(
-                payload["negative_equity_days"], "negative_equity_days", minimum=0
+            negative_equity_days=(
+                None
+                if payload["negative_equity_days"] is None
+                else _check_int(payload["negative_equity_days"], "negative_equity_days", minimum=0)
+            ),
+            equity_observed_days=_check_int(
+                payload["equity_observed_days"], "equity_observed_days", minimum=0
             ),
             min_hedger_equity=(
                 None
@@ -457,12 +466,11 @@ def summarize_run(
     limit_hits = sum(rec.limit_hits for rec in observed)
 
     min_equities = [rec.hedger_min_equity for rec in observed if rec.hedger_min_equity is not None]
-    if min_equities:
-        min_hedger_equity: float | None = min(min_equities)
-        negative_equity_days = sum(1 for eq in min_equities if eq < 0.0)
-    else:
-        min_hedger_equity = None
-        negative_equity_days = sum(1 for rec in observed if rec.hedger_total_equity < 0.0)
+    equity_observed_days = len(min_equities)
+    min_hedger_equity = min(min_equities) if equity_observed_days == observed_days else None
+    negative_equity_days = (
+        sum(eq < 0 for eq in min_equities) if equity_observed_days == observed_days else None
+    )
 
     mean_open_calls = fsum(rec.open_calls_shares for rec in observed) / observed_days
 
@@ -496,6 +504,7 @@ def summarize_run(
         unfilled_hedge_demand_share=unfilled_share,
         limit_hit_count=limit_hits,
         negative_equity_days=negative_equity_days,
+        equity_observed_days=equity_observed_days,
         min_hedger_equity=min_hedger_equity,
         mean_open_calls_shares=mean_open_calls,
         zero_booked_fee_share=zero_booked_fee_share,
