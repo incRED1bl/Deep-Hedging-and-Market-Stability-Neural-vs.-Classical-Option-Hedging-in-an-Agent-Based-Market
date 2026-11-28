@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "status": "reference-defaults-not-validation-selected",
+  "depends_on_issue": 5,
+  "policies": {
+    "bs": {
+      "method": "bs",
+      "days_per_year": 252,
+      "annual_funding_rate": 0.0,
+      "band_width": 0.0
+    },
+    "leland": {
+      "method": "leland",
+      "days_per_year": 252,
+      "annual_funding_rate": 0.0,
+      "band_width": 0.0
+    },
+    "band": {
+      "method": "band",
+      "days_per_year": 252,
+      "annual_funding_rate": 0.0,
+      "band_width": 0.05
+    }
+  },
+  "validation": {
+    "split": "validation",
+    "band_width_grid": [
+      0,
+      0.01,
+      0.025,
+      0.05,
+      0.1,
+      0.2
+    ],
+    "criterion": "entropic-risk-of-normalized-net-pnl",
+    "risk_aversion": 50,
+    "per_commission": true,
+    "tie_tolerance": 1e-08,
+    "tie_break": "smaller-width",
+    "model_selection_issue": 16
+  }
+}
